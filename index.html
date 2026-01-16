@@ -17,11 +17,15 @@
       <div class="eyebrow">Tabletop worldbuilding toolkit</div>
       <h1>Plate Tectonics Generator</h1>
       <p>
-        Roll an A4 point cloud, paint plate boundaries, then paint continents directly on the grid.
+        Roll an A4 point cloud, paint plate boundaries, add arrowed lines, then place crust, plate IDs, and directions on the grid.
       </p>
       <div class="header-meta">
         <span class="pill">Roll points</span>
         <span class="pill">Paint plates</span>
+        <span class="pill">Paint arrows</span>
+        <span class="pill">Roll crust</span>
+        <span class="pill">Identify plates</span>
+        <span class="pill">Roll direction</span>
         <span class="pill">Paint continents</span>
       </div>
     </header>
@@ -35,27 +39,38 @@
           </div>
           <p>
             Roll 2d6+2d6 to mark points on the A4 grid. Use Paint plates to draw
-            lines, Paint continent to place nodes and reshape landmasses (drag
-            nodes to edit, right-drag to rotate), press Delete to remove a
-            continent, Ctrl+Z to undo, and right-click to erase points or lines.
+            lines, Paint arrows to add arrowed lines, Roll crust to place ocean
+            or continental markers, Identify plates to add plate numbers, Roll
+            direction to drop movement arrows, Paint continent to place nodes
+            and reshape landmasses (drag nodes to edit, right-drag to rotate),
+            press Delete to remove a continent, Ctrl+Z to undo, and right-click
+            to erase points or lines.
           </p>
         </div>
         <div class="step-content">
           <section class="controls">
-            <div class="control-card">
+            <div class="control-card roll-card">
               <div class="control-title">Roll</div>
-              <div class="control-actions">
+              <div class="control-actions roll-actions">
                 <button id="roll-btn" class="primary">Roll a point (2d6+2d6)</button>
                 <button id="roll-6-btn" class="secondary">Roll 6 points</button>
               </div>
+              <div class="control-hint">Rolls add seed points to the A4 grid.</div>
             </div>
-            <div class="control-card">
+            <div class="control-card tool-card">
               <div class="control-title">Tools</div>
-              <div class="control-actions">
+              <div class="control-actions tool-actions">
                 <button id="pencil-btn" class="secondary" aria-pressed="false">Paint plates</button>
+                <button id="arrow-btn" class="secondary" aria-pressed="false">Paint arrows</button>
+                <button id="crust-btn" class="secondary" aria-pressed="false">Roll crust</button>
+                <button id="plate-id-btn" class="secondary" aria-pressed="false">Identify plate</button>
+                <button id="direction-btn" class="secondary" aria-pressed="false">Roll direction</button>
                 <button id="continent-btn" class="secondary" aria-pressed="false">Paint continent</button>
                 <button id="delete-continent-btn" class="ghost">Delete continent</button>
                 <button id="clear-btn" class="danger">Clear all</button>
+              </div>
+              <div class="control-hint">
+                Left click places or drags. Right click deletes. Delete removes selected. Ctrl+Z undoes.
               </div>
             </div>
             <div class="control-card status-card">
@@ -79,6 +94,7 @@
                 </div>
                 <div id="message" class="message status-message" aria-live="polite"></div>
               </div>
+              <div id="continent-hint" class="hint-line" aria-live="polite"></div>
             </div>
           </section>
 
@@ -92,6 +108,12 @@
                 height="210"
                 aria-label="A4 continent overlay"
               ></canvas>
+              <svg
+                id="marker-layer"
+                class="marker-overlay"
+                role="img"
+                aria-label="A4 markers overlay"
+              ></svg>
             </div>
           </section>
         </div>

@@ -2,7 +2,7 @@
 
 ## Description
 
-Visual tool for generating plate-tectonics and continent maps for TTRPGs on an A4 grid. It combines random point rolls, plate strokes, and editable contours, with options to move, rotate, and reshape forms.
+Visual tool for generating plate-tectonics and continent maps for TTRPGs on an A4 grid. It combines random point rolls, plate strokes, arrow lines, crust markers, plate IDs, direction rolls, and editable contours, with options to move, rotate, and reshape forms.
 
 ## Web
 

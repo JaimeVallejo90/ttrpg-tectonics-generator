@@ -31,6 +31,29 @@
   const draftStroke = "rgba(194, 99, 42, 0.8)";
   const draftPoint = "rgba(194, 99, 42, 0.9)";
   const draftPointActive = "rgba(79, 111, 106, 0.9)";
+  const markerHitRadius = Math.min(microW, microH) * 0.45;
+  const markerIconSize = Math.min(microW, microH) * 0.75;
+  const markerNumberSize = Math.min(microW, microH) * 0.6;
+  const crustIcons = {
+    ocean: "\u{1F30A}",
+    continent: "\u26F0\uFE0F",
+  };
+  const directionIcons = {
+    1: "\u2B06\uFE0F",
+    2: "\u2197\uFE0F",
+    3: "\u2198\uFE0F",
+    4: "\u2B07\uFE0F",
+    5: "\u2199\uFE0F",
+    6: "\u2196\uFE0F",
+  };
+  const directionLabels = {
+    1: "N",
+    2: "NE",
+    3: "SE",
+    4: "S",
+    5: "SW",
+    6: "NW",
+  };
 
   const state = {
     selectedCells: new Set(),
@@ -41,6 +64,9 @@
     isDrawing: false,
     currentLine: null,
     lines: [],
+    markers: [],
+    selectedMarkerId: null,
+    markerDrag: null,
     continentPieces: [],
     continentDraft: [],
     continentCursor: null,
@@ -48,6 +74,7 @@
     selectedContinentId: null,
     continentHoverNode: null,
     nextContinentId: 1,
+    nextMarkerId: 1,
     clearConfirm: false,
   };
 
@@ -58,6 +85,10 @@
     ui.rollBtn = document.getElementById("roll-btn");
     ui.rollSixBtn = document.getElementById("roll-6-btn");
     ui.pencilBtn = document.getElementById("pencil-btn");
+    ui.arrowBtn = document.getElementById("arrow-btn");
+    ui.crustBtn = document.getElementById("crust-btn");
+    ui.plateIdBtn = document.getElementById("plate-id-btn");
+    ui.directionBtn = document.getElementById("direction-btn");
     ui.continentBtn = document.getElementById("continent-btn");
     ui.deleteContinentBtn = document.getElementById("delete-continent-btn");
     ui.clearBtn = document.getElementById("clear-btn");
@@ -67,6 +98,7 @@
     ui.filled = document.getElementById("filled-count");
     ui.message = document.getElementById("message");
     ui.continentCanvas = document.getElementById("continent-canvas");
+    ui.markerLayer = document.getElementById("marker-layer");
     ui.continentHint = document.getElementById("continent-hint");
     ui.continentCtx = ui.continentCanvas
       ? ui.continentCanvas.getContext("2d")
@@ -74,6 +106,10 @@
 
     ui.board.setAttribute("viewBox", `0 0 ${WIDTH} ${HEIGHT}`);
     ui.board.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    if (ui.markerLayer) {
+      ui.markerLayer.setAttribute("viewBox", `0 0 ${WIDTH} ${HEIGHT}`);
+      ui.markerLayer.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    }
     if (ui.continentCanvas && ui.continentCtx) {
       updateOverlayCanvasSize();
     }
@@ -81,6 +117,10 @@
     ui.rollBtn.addEventListener("click", handleRoll);
     ui.rollSixBtn.addEventListener("click", handleRollSix);
     ui.pencilBtn.addEventListener("click", togglePencil);
+    ui.arrowBtn.addEventListener("click", toggleArrow);
+    ui.crustBtn.addEventListener("click", toggleCrust);
+    ui.plateIdBtn.addEventListener("click", togglePlateId);
+    ui.directionBtn.addEventListener("click", toggleDirection);
     ui.continentBtn.addEventListener("click", toggleContinent);
     ui.deleteContinentBtn.addEventListener("click", handleDeleteContinent);
     ui.clearBtn.addEventListener("click", handleClearAll);
@@ -97,6 +137,14 @@
       ui.continentCanvas.addEventListener("pointerleave", handleContinentPointerUp);
       ui.continentCanvas.addEventListener("pointercancel", handleContinentPointerUp);
       ui.continentCanvas.addEventListener("contextmenu", handleContinentContextMenu);
+    }
+    if (ui.markerLayer) {
+      ui.markerLayer.addEventListener("pointerdown", handleMarkerPointerDown);
+      ui.markerLayer.addEventListener("pointermove", handleMarkerPointerMove);
+      ui.markerLayer.addEventListener("pointerup", handleMarkerPointerUp);
+      ui.markerLayer.addEventListener("pointerleave", handleMarkerPointerUp);
+      ui.markerLayer.addEventListener("pointercancel", handleMarkerPointerUp);
+      ui.markerLayer.addEventListener("contextmenu", handleMarkerContextMenu);
     }
     window.addEventListener("resize", handleResize);
     window.addEventListener("keydown", handleKeydown);
@@ -189,13 +237,28 @@
     return null;
   }
 
+  function isLineTool(tool) {
+    return tool === "pencil" || tool === "arrow";
+  }
+
+  function isMarkerTool(tool) {
+    return tool === "crust" || tool === "plate-id" || tool === "direction";
+  }
+
   function setTool(nextTool) {
     cancelClearConfirm();
+    const previousTool = state.tool;
     const target = state.tool === nextTool ? "roll" : nextTool;
     state.tool = target;
-    if (state.tool !== "pencil") {
+    if (previousTool !== state.tool) {
       state.isDrawing = false;
       state.currentLine = null;
+    }
+    if (!isMarkerTool(state.tool)) {
+      state.markerDrag = null;
+      if (isMarkerTool(previousTool)) {
+        state.selectedMarkerId = null;
+      }
     }
     if (state.tool !== "continent") {
       state.continentDraft = [];
@@ -210,6 +273,22 @@
     setTool("pencil");
   }
 
+  function toggleArrow() {
+    setTool("arrow");
+  }
+
+  function toggleCrust() {
+    setTool("crust");
+  }
+
+  function togglePlateId() {
+    setTool("plate-id");
+  }
+
+  function toggleDirection() {
+    setTool("direction");
+  }
+
   function toggleContinent() {
     setTool("continent");
   }
@@ -218,6 +297,7 @@
     return (
       state.selectedCells.size > 0 ||
       state.lines.length > 0 ||
+      state.markers.length > 0 ||
       state.continentPieces.length > 0 ||
       state.continentDraft.length > 0
     );
@@ -257,6 +337,9 @@
     state.currentLine = null;
     state.isDrawing = false;
     state.lines = [];
+    state.markers = [];
+    state.selectedMarkerId = null;
+    state.markerDrag = null;
     state.continentPieces = [];
     state.continentDraft = [];
     state.continentCursor = null;
@@ -264,6 +347,7 @@
     state.selectedContinentId = null;
     state.continentHoverNode = null;
     state.nextContinentId = 1;
+    state.nextMarkerId = 1;
   }
 
   function createClearSnapshot() {
@@ -272,9 +356,12 @@
       lines: state.lines.map((line) => ({ ...line })),
       lastSector: state.lastSector ? { ...state.lastSector } : null,
       lastCell: state.lastCell ? { ...state.lastCell } : null,
+      markers: state.markers.map(cloneMarker),
+      selectedMarkerId: state.selectedMarkerId,
       continentPieces: state.continentPieces.map(cloneContinentPiece),
       selectedContinentId: state.selectedContinentId,
       nextContinentId: state.nextContinentId,
+      nextMarkerId: state.nextMarkerId,
     };
   }
 
@@ -283,15 +370,25 @@
     state.lines = snapshot.lines.map((line) => ({ ...line }));
     state.lastSector = snapshot.lastSector ? { ...snapshot.lastSector } : null;
     state.lastCell = snapshot.lastCell ? { ...snapshot.lastCell } : null;
+    state.markers = snapshot.markers.map(cloneMarker);
+    state.selectedMarkerId = snapshot.selectedMarkerId;
     state.continentPieces = snapshot.continentPieces.map(cloneContinentPiece);
     state.selectedContinentId = snapshot.selectedContinentId;
     state.nextContinentId = snapshot.nextContinentId;
+    state.nextMarkerId = snapshot.nextMarkerId;
     state.currentLine = null;
     state.isDrawing = false;
+    state.markerDrag = null;
     state.continentDraft = [];
     state.continentCursor = null;
     state.continentDrag = null;
     state.continentHoverNode = null;
+    if (
+      state.selectedMarkerId &&
+      !state.markers.some((marker) => marker.id === state.selectedMarkerId)
+    ) {
+      state.selectedMarkerId = null;
+    }
     if (
       state.selectedContinentId &&
       !state.continentPieces.some((piece) => piece.id === state.selectedContinentId)
@@ -311,7 +408,7 @@
   }
 
   function handlePointerDown(event) {
-    if (state.tool !== "pencil" || event.button !== 0) {
+    if (!isLineTool(state.tool) || event.button !== 0) {
       return;
     }
     cancelClearConfirm();
@@ -319,12 +416,14 @@
     if (!point) {
       return;
     }
+    const lineType = state.tool === "arrow" ? "arrow" : "plate";
     state.isDrawing = true;
     state.currentLine = {
       x1: point.x,
       y1: point.y,
       x2: point.x,
       y2: point.y,
+      lineType,
     };
     if (ui.board.setPointerCapture) {
       ui.board.setPointerCapture(event.pointerId);
@@ -333,7 +432,7 @@
   }
 
   function handlePointerMove(event) {
-    if (!state.isDrawing || state.tool !== "pencil") {
+    if (!state.isDrawing || !isLineTool(state.tool)) {
       return;
     }
     updateCurrentLine(event);
@@ -379,6 +478,11 @@
         return;
       }
       cancelClearConfirm();
+      if (deleteSelectedMarker()) {
+        event.preventDefault();
+        render();
+        return;
+      }
       if (deleteSelectedContinent()) {
         event.preventDefault();
         render();
@@ -393,6 +497,132 @@
       event.preventDefault();
       undoLast();
     }
+  }
+
+  function handleMarkerPointerDown(event) {
+    if (!isMarkerTool(state.tool)) {
+      return;
+    }
+    cancelClearConfirm();
+    if (event.button !== 0 && event.button !== 2) {
+      return;
+    }
+    const point = getSvgPointInPage(event, false);
+    if (!point) {
+      return;
+    }
+
+    if (event.button === 2) {
+      const removed = removeMarkerAt(point);
+      if (!removed) {
+        setMessage("Nothing to delete.");
+      }
+      render();
+      event.preventDefault();
+      return;
+    }
+
+    const hit = findMarkerAt(point);
+    if (hit) {
+      selectMarker(hit.id);
+      state.markerDrag = {
+        id: hit.id,
+        offsetX: point.x - hit.x,
+        offsetY: point.y - hit.y,
+        before: cloneMarker(hit),
+      };
+      if (ui.markerLayer && ui.markerLayer.setPointerCapture) {
+        ui.markerLayer.setPointerCapture(event.pointerId);
+      }
+      if (ui.markerLayer) {
+        ui.markerLayer.style.cursor = "grabbing";
+      }
+      render();
+      return;
+    }
+
+    const marker = createMarkerFromTool(point);
+    if (!marker) {
+      return;
+    }
+    state.markers.push(marker);
+    state.history.push({ type: "marker-add", marker: cloneMarker(marker) });
+    selectMarker(marker.id);
+    render();
+  }
+
+  function handleMarkerPointerMove(event) {
+    if (!isMarkerTool(state.tool)) {
+      return;
+    }
+    const point = getSvgPointInPage(event, true);
+    if (!point) {
+      return;
+    }
+
+    if (state.markerDrag) {
+      const marker = getMarkerById(state.markerDrag.id);
+      if (!marker) {
+        state.markerDrag = null;
+        render();
+        return;
+      }
+      marker.x = clamp(point.x - state.markerDrag.offsetX, 0, WIDTH);
+      marker.y = clamp(point.y - state.markerDrag.offsetY, 0, HEIGHT);
+      render();
+      return;
+    }
+
+    const hit = findMarkerAt(point);
+    if (ui.markerLayer) {
+      ui.markerLayer.style.cursor = hit ? "grab" : "crosshair";
+    }
+  }
+
+  function handleMarkerPointerUp(event) {
+    if (!isMarkerTool(state.tool)) {
+      return;
+    }
+    if (state.markerDrag) {
+      commitMarkerDrag();
+      state.markerDrag = null;
+      if (ui.markerLayer && ui.markerLayer.releasePointerCapture) {
+        try {
+          ui.markerLayer.releasePointerCapture(event.pointerId);
+        } catch (error) {
+          // Ignore if pointer capture was not set.
+        }
+      }
+    }
+    if (ui.markerLayer) {
+      ui.markerLayer.style.cursor = "crosshair";
+    }
+    render();
+  }
+
+  function handleMarkerContextMenu(event) {
+    if (isMarkerTool(state.tool)) {
+      event.preventDefault();
+    }
+  }
+
+  function commitMarkerDrag() {
+    if (!state.markerDrag || !state.markerDrag.before) {
+      return;
+    }
+    const marker = getMarkerById(state.markerDrag.id);
+    if (!marker) {
+      return;
+    }
+    if (!hasMarkerChanged(state.markerDrag.before, marker)) {
+      return;
+    }
+    state.history.push({
+      type: "marker-update",
+      id: marker.id,
+      before: state.markerDrag.before,
+      after: cloneMarker(marker),
+    });
   }
 
   function updateCurrentLine(event) {
@@ -413,14 +643,16 @@
       return;
     }
     const { x1, y1, x2, y2 } = state.currentLine;
+    const lineType = state.currentLine.lineType || "plate";
     const dx = x2 - x1;
     const dy = y2 - y1;
     const length = Math.hypot(dx, dy);
-    const minLength = Math.min(microW, microH) * 0.2;
+    const minLength =
+      Math.min(microW, microH) * (lineType === "arrow" ? 0.3 : 0.2);
     if (length >= minLength) {
-      state.lines.push({ x1, y1, x2, y2 });
+      state.lines.push({ x1, y1, x2, y2, lineType });
       state.history.push({ type: "line" });
-      setMessage("Line drawn.");
+      setMessage(lineType === "arrow" ? "Arrow drawn." : "Line drawn.");
     }
     state.currentLine = null;
     render();
@@ -463,8 +695,14 @@
   function removeAtPoint(x, y) {
     const pointHit = Math.min(microW, microH) * 0.35;
     const lineHit = Math.min(microW, microH) * 0.35;
+    const markerCandidate = findMarkerAt({ x, y });
     const pointCandidate = findNearestPoint(x, y, pointHit);
     const lineCandidate = findNearestLine(x, y, lineHit);
+
+    if (markerCandidate) {
+      deleteMarkerById(markerCandidate.id);
+      return true;
+    }
 
     if (pointCandidate && lineCandidate) {
       if (pointCandidate.distance <= lineCandidate.distance) {
@@ -589,6 +827,162 @@
     setMessage("Line deleted.");
   }
 
+  function createMarkerFromTool(point) {
+    if (state.tool === "crust") {
+      const roll = rollD6();
+      const crustType = roll <= 3 ? "ocean" : "continent";
+      setMessage(
+        crustType === "ocean" ? "Crust: oceanic." : "Crust: continental."
+      );
+      return createMarker("crust", point, crustType);
+    }
+    if (state.tool === "direction") {
+      const roll = rollD6();
+      const label = directionLabels[roll] || "?";
+      setMessage(`Direction: ${label}.`);
+      return createMarker("direction", point, roll);
+    }
+    if (state.tool === "plate-id") {
+      const number = getNextPlateNumber();
+      setMessage(`Plate ${number}.`);
+      return createMarker("plate-id", point, number);
+    }
+    return null;
+  }
+
+  function createMarker(type, point, value) {
+    return {
+      id: `marker-${state.nextMarkerId++}`,
+      type,
+      x: point.x,
+      y: point.y,
+      value,
+    };
+  }
+
+  function getNextPlateNumber() {
+    const used = new Set();
+    state.markers.forEach((marker) => {
+      if (marker.type === "plate-id") {
+        used.add(marker.value);
+      }
+    });
+    let number = 1;
+    while (used.has(number)) {
+      number += 1;
+    }
+    return number;
+  }
+
+  function getMarkerLabel(marker) {
+    if (marker.type === "plate-id") {
+      return String(marker.value);
+    }
+    if (marker.type === "crust") {
+      return crustIcons[marker.value] || "";
+    }
+    if (marker.type === "direction") {
+      return directionIcons[marker.value] || "";
+    }
+    return "";
+  }
+
+  function getMarkerFontSize(marker) {
+    return marker.type === "plate-id" ? markerNumberSize : markerIconSize;
+  }
+
+  function findMarkerAt(point) {
+    for (let i = state.markers.length - 1; i >= 0; i -= 1) {
+      const marker = state.markers[i];
+      const dx = point.x - marker.x;
+      const dy = point.y - marker.y;
+      if (dx * dx + dy * dy <= markerHitRadius * markerHitRadius) {
+        return marker;
+      }
+    }
+    return null;
+  }
+
+  function removeMarkerAt(point) {
+    const hit = findMarkerAt(point);
+    if (!hit) {
+      return false;
+    }
+    return deleteMarkerById(hit.id);
+  }
+
+  function deleteMarkerById(id, recordHistory = true) {
+    const index = state.markers.findIndex((marker) => marker.id === id);
+    if (index < 0) {
+      return false;
+    }
+    const [removed] = state.markers.splice(index, 1);
+    if (recordHistory && removed) {
+      state.history.push({
+        type: "marker-delete",
+        marker: cloneMarker(removed),
+        index,
+      });
+    }
+    if (state.selectedMarkerId === id) {
+      state.selectedMarkerId = null;
+    }
+    if (state.markerDrag && state.markerDrag.id === id) {
+      state.markerDrag = null;
+    }
+    setMessage("Marker deleted.");
+    return true;
+  }
+
+  function deleteSelectedMarker(recordHistory = true) {
+    if (!state.selectedMarkerId) {
+      return false;
+    }
+    return deleteMarkerById(state.selectedMarkerId, recordHistory);
+  }
+
+  function selectMarker(id) {
+    state.selectedMarkerId = id;
+    state.selectedContinentId = null;
+    state.continentHoverNode = null;
+    bringMarkerToFront(id);
+  }
+
+  function bringMarkerToFront(id) {
+    const index = state.markers.findIndex((marker) => marker.id === id);
+    if (index < 0 || index === state.markers.length - 1) {
+      return;
+    }
+    const [marker] = state.markers.splice(index, 1);
+    state.markers.push(marker);
+  }
+
+  function cloneMarker(marker) {
+    return { ...marker };
+  }
+
+  function applyMarkerSnapshot(target, snapshot) {
+    target.type = snapshot.type;
+    target.x = snapshot.x;
+    target.y = snapshot.y;
+    target.value = snapshot.value;
+  }
+
+  function hasMarkerChanged(before, marker) {
+    const epsilon = 0.01;
+    if (before.type !== marker.type || before.value !== marker.value) {
+      return true;
+    }
+    return (
+      Math.abs(before.x - marker.x) > epsilon ||
+      Math.abs(before.y - marker.y) > epsilon
+    );
+  }
+
+  function getMarkerById(id) {
+    return state.markers.find((marker) => marker.id === id);
+  }
+
   function addCell(microCol, microRow, sectorCol, sectorRow, cellCol, cellRow) {
     const key = `${microCol},${microRow}`;
     if (state.selectedCells.has(key)) {
@@ -625,6 +1019,15 @@
         const insertAt = clamp(last.index, 0, state.lines.length);
         state.lines.splice(insertAt, 0, last.line);
       }
+    }
+    if (last.type === "marker-add") {
+      undoMarkerAdd(last);
+    }
+    if (last.type === "marker-delete") {
+      undoMarkerDelete(last);
+    }
+    if (last.type === "marker-update") {
+      undoMarkerUpdate(last);
     }
     if (last.type === "continent-add") {
       undoContinentAdd(last);
@@ -675,6 +1078,14 @@
   function render() {
     if (state.tool === "pencil") {
       ui.toolMode.textContent = "Paint plates";
+    } else if (state.tool === "arrow") {
+      ui.toolMode.textContent = "Paint arrows";
+    } else if (state.tool === "crust") {
+      ui.toolMode.textContent = "Roll crust";
+    } else if (state.tool === "plate-id") {
+      ui.toolMode.textContent = "Identify plate";
+    } else if (state.tool === "direction") {
+      ui.toolMode.textContent = "Roll direction";
     } else if (state.tool === "continent") {
       ui.toolMode.textContent = "Paint continent";
     } else {
@@ -689,13 +1100,25 @@
     ui.clearBtn.textContent = state.clearConfirm ? "Confirm clear" : "Clear all";
     ui.pencilBtn.setAttribute("aria-pressed", state.tool === "pencil");
     ui.pencilBtn.classList.toggle("active", state.tool === "pencil");
+    ui.arrowBtn.setAttribute("aria-pressed", state.tool === "arrow");
+    ui.arrowBtn.classList.toggle("active", state.tool === "arrow");
+    ui.crustBtn.setAttribute("aria-pressed", state.tool === "crust");
+    ui.crustBtn.classList.toggle("active", state.tool === "crust");
+    ui.plateIdBtn.setAttribute("aria-pressed", state.tool === "plate-id");
+    ui.plateIdBtn.classList.toggle("active", state.tool === "plate-id");
+    ui.directionBtn.setAttribute("aria-pressed", state.tool === "direction");
+    ui.directionBtn.classList.toggle("active", state.tool === "direction");
     ui.continentBtn.setAttribute("aria-pressed", state.tool === "continent");
     ui.continentBtn.classList.toggle("active", state.tool === "continent");
     ui.deleteContinentBtn.disabled = !state.selectedContinentId;
-    ui.board.classList.toggle("pencil-active", state.tool === "pencil");
+    ui.board.classList.toggle("pencil-active", isLineTool(state.tool));
     document.body.dataset.tool = state.tool;
     ui.board.innerHTML = buildSvg();
     drawContinents();
+    drawMarkers();
+    if (ui.markerLayer && !state.markerDrag) {
+      ui.markerLayer.style.cursor = isMarkerTool(state.tool) ? "crosshair" : "default";
+    }
   }
 
   function formatLastSector() {
@@ -714,6 +1137,13 @@
 
   function buildSvg() {
     const parts = [];
+    const arrowSize = Math.min(microW, microH) * 0.3;
+    const arrowSizeText = arrowSize.toFixed(2);
+    const arrowHalfText = (arrowSize / 2).toFixed(2);
+
+    parts.push(
+      `<defs><marker id="arrow-head" markerUnits="userSpaceOnUse" markerWidth="${arrowSizeText}" markerHeight="${arrowSizeText}" viewBox="0 0 ${arrowSizeText} ${arrowSizeText}" refX="${arrowSizeText}" refY="${arrowHalfText}" orient="auto"><path d="M 0 0 L ${arrowSizeText} ${arrowHalfText} L 0 ${arrowSizeText} z" fill="var(--ink)" /></marker></defs>`
+    );
 
     for (let i = 1; i < MICRO_COUNT; i += 1) {
       if (i % MICRO_PER_BIG === 0) {
@@ -751,16 +1181,24 @@
     );
 
     state.lines.forEach((line) => {
+      const lineType = line.lineType || "plate";
+      const lineClass = lineType === "arrow" ? "arrow-line" : "pencil-line";
+      const markerEnd = lineType === "arrow" ? ' marker-end="url(#arrow-head)"' : "";
       parts.push(
-        `<line class="pencil-line" x1="${line.x1.toFixed(2)}" y1="${line.y1.toFixed(
+        `<line class="${lineClass}"${markerEnd} x1="${line.x1.toFixed(
           2
-        )}" x2="${line.x2.toFixed(2)}" y2="${line.y2.toFixed(2)}" />`
+        )}" y1="${line.y1.toFixed(2)}" x2="${line.x2.toFixed(2)}" y2="${line.y2.toFixed(
+          2
+        )}" />`
       );
     });
 
     if (state.currentLine) {
+      const lineType = state.currentLine.lineType || "plate";
+      const lineClass = lineType === "arrow" ? "arrow-line" : "pencil-line";
+      const markerEnd = lineType === "arrow" ? ' marker-end="url(#arrow-head)"' : "";
       parts.push(
-        `<line class="pencil-line" x1="${state.currentLine.x1.toFixed(
+        `<line class="${lineClass}"${markerEnd} x1="${state.currentLine.x1.toFixed(
           2
         )}" y1="${state.currentLine.y1.toFixed(2)}" x2="${state.currentLine.x2.toFixed(
           2
@@ -780,6 +1218,35 @@
     });
 
     return parts.join("");
+  }
+
+  function buildMarkerSvg() {
+    const parts = [];
+    state.markers.forEach((marker) => {
+      const label = escapeSvgText(getMarkerLabel(marker));
+      const size = getMarkerFontSize(marker).toFixed(2);
+      const selected = marker.id === state.selectedMarkerId ? " selected" : "";
+      parts.push(
+        `<text class="marker-text marker-${marker.type}${selected}" x="${marker.x.toFixed(
+          2
+        )}" y="${marker.y.toFixed(2)}" text-anchor="middle" dominant-baseline="central" font-size="${size}">${label}</text>`
+      );
+    });
+    return parts.join("");
+  }
+
+  function drawMarkers() {
+    if (!ui.markerLayer) {
+      return;
+    }
+    ui.markerLayer.innerHTML = buildMarkerSvg();
+  }
+
+  function escapeSvgText(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
   }
 
   function handleResize() {
@@ -1098,6 +1565,8 @@
 
   function selectContinent(id) {
     state.selectedContinentId = id;
+    state.selectedMarkerId = null;
+    state.markerDrag = null;
     bringContinentToFront(id);
   }
 
@@ -1124,6 +1593,31 @@
     state.continentHoverNode = null;
     setMessage("Continent deleted.");
     return true;
+  }
+
+  function undoMarkerAdd(entry) {
+    const index = state.markers.findIndex((marker) => marker.id === entry.marker.id);
+    if (index >= 0) {
+      state.markers.splice(index, 1);
+    }
+    if (state.selectedMarkerId === entry.marker.id) {
+      state.selectedMarkerId = null;
+    }
+  }
+
+  function undoMarkerDelete(entry) {
+    const insertAt = clamp(entry.index, 0, state.markers.length);
+    const restored = cloneMarker(entry.marker);
+    state.markers.splice(insertAt, 0, restored);
+    state.selectedMarkerId = restored.id;
+  }
+
+  function undoMarkerUpdate(entry) {
+    const marker = getMarkerById(entry.id);
+    if (!marker) {
+      return;
+    }
+    applyMarkerSnapshot(marker, entry.before);
   }
 
   function undoContinentAdd(entry) {
@@ -1378,21 +1872,45 @@
     if (!ui.continentHint) {
       return;
     }
-    if (state.tool !== "continent") {
-      ui.continentHint.textContent = "Paint continent to add nodes";
-      return;
-    }
-    if (state.continentDraft.length > 0) {
-      ui.continentHint.textContent = "Click the first node again to close.";
-      return;
-    }
-    if (state.selectedContinentId) {
+    if (state.tool === "continent") {
+      if (state.continentDraft.length > 0) {
+        ui.continentHint.textContent = "Click the first node again to close.";
+        return;
+      }
+      if (state.selectedContinentId) {
+        ui.continentHint.textContent =
+          "Drag to move. Right-drag to rotate. Drag nodes to reshape.";
+        return;
+      }
       ui.continentHint.textContent =
-        "Drag to move. Right-drag to rotate. Drag nodes to reshape.";
+        "Click to add nodes. Close by clicking the first node.";
       return;
     }
-    ui.continentHint.textContent =
-      "Click to add nodes. Close by clicking the first node.";
+    if (state.tool === "crust") {
+      ui.continentHint.textContent =
+        "Click to roll crust and place an icon. Drag to move.";
+      return;
+    }
+    if (state.tool === "plate-id") {
+      ui.continentHint.textContent =
+        "Click to place the next plate number. Drag to move.";
+      return;
+    }
+    if (state.tool === "direction") {
+      ui.continentHint.textContent =
+        "Click to roll a direction arrow. Drag to move.";
+      return;
+    }
+    if (state.tool === "pencil") {
+      ui.continentHint.textContent =
+        "Click and drag to draw plate boundaries.";
+      return;
+    }
+    if (state.tool === "arrow") {
+      ui.continentHint.textContent = "Click and drag to draw arrows.";
+      return;
+    }
+    ui.continentHint.textContent = "Select a tool to begin.";
   }
 
   function traceContinentPath(context, points) {
