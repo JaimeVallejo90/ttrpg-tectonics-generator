@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Plate Tectonics Generator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;700&family=Space+Grotesk:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="page-header">
+      <div class="eyebrow">Tabletop worldbuilding toolkit</div>
+      <h1>Plate Tectonics Generator</h1>
+      <p>
+        Roll an A4 point cloud, paint plate boundaries, then paint continents directly on the grid.
+      </p>
+      <div class="header-meta">
+        <span class="pill">Roll points</span>
+        <span class="pill">Paint plates</span>
+        <span class="pill">Paint continents</span>
+      </div>
+    </header>
+
+    <main class="page-main">
+      <section class="step-block" id="grid-step">
+        <div class="step-header">
+          <div>
+            <div class="step-kicker">Grid workflow</div>
+            <h2>Point Cloud Grid</h2>
+          </div>
+          <p>
+            Roll 2d6+2d6 to mark points on the A4 grid. Use Paint plates to draw
+            lines, Paint continent to place nodes and reshape landmasses (drag
+            nodes to edit, right-drag to rotate), press Delete to remove a
+            continent, Ctrl+Z to undo, and right-click to erase points or lines.
+          </p>
+        </div>
+        <div class="step-content">
+          <section class="controls">
+            <div class="control-card">
+              <div class="control-title">Roll</div>
+              <div class="control-actions">
+                <button id="roll-btn" class="primary">Roll a point (2d6+2d6)</button>
+                <button id="roll-6-btn" class="secondary">Roll 6 points</button>
+              </div>
+            </div>
+            <div class="control-card">
+              <div class="control-title">Tools</div>
+              <div class="control-actions">
+                <button id="pencil-btn" class="secondary" aria-pressed="false">Paint plates</button>
+                <button id="continent-btn" class="secondary" aria-pressed="false">Paint continent</button>
+                <button id="delete-continent-btn" class="ghost">Delete continent</button>
+                <button id="clear-btn" class="danger">Clear all</button>
+              </div>
+            </div>
+            <div class="control-card status-card">
+              <div class="control-title">Status</div>
+              <div class="status-grid">
+                <div class="status-item">
+                  <span class="status-label">Tool</span>
+                  <span id="tool-mode" class="status-value">Roll</span>
+                </div>
+                <div class="status-item">
+                  <span class="status-label">Filled</span>
+                  <span class="status-value"><span id="filled-count">0</span>/324</span>
+                </div>
+                <div class="status-item">
+                  <span class="status-label">Last sector</span>
+                  <span id="last-sector" class="status-value">-</span>
+                </div>
+                <div class="status-item">
+                  <span class="status-label">Last cell</span>
+                  <span id="last-cell" class="status-value">-</span>
+                </div>
+                <div id="message" class="message status-message" aria-live="polite"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="board-wrap">
+            <div class="board-stack">
+              <svg id="board" role="img" aria-label="A4 grid"></svg>
+              <canvas
+                id="continent-canvas"
+                class="board-overlay"
+                width="297"
+                height="210"
+                aria-label="A4 continent overlay"
+              ></canvas>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
