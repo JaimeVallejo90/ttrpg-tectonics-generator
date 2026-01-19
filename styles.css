@@ -258,12 +258,6 @@ body {
   font-size: clamp(1.6rem, 2.3vw, 2.1rem);
 }
 
-.workspace-actions {
-  display: flex;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-}
-
 .workspace-meta {
   display: grid;
   gap: 0.8rem;
