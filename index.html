@@ -13,90 +13,134 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="page-header">
-      <div class="eyebrow">Tabletop worldbuilding toolkit</div>
-      <h1>Plate Tectonics Generator</h1>
-      <p>
-        Roll an A4 point cloud, paint plate boundaries, add arrowed lines, then place crust, plate IDs, and directions on the grid.
-      </p>
-      <div class="header-meta">
-        <span class="pill">Roll points</span>
-        <span class="pill">Paint plates</span>
-        <span class="pill">Paint arrows</span>
-        <span class="pill">Roll crust</span>
-        <span class="pill">Identify plates</span>
-        <span class="pill">Roll direction</span>
-        <span class="pill">Paint continents</span>
-      </div>
-    </header>
-
-    <main class="page-main">
-      <section class="step-block" id="grid-step">
-        <div class="step-header">
-          <div>
-            <div class="step-kicker">Grid workflow</div>
-            <h2>Point Cloud Grid</h2>
-          </div>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="title-block">
+          <div class="eyebrow">Tabletop worldbuilding toolkit</div>
+          <h1>Plate Tectonics Generator</h1>
           <p>
-            Roll 2d6+2d6 to mark points on the A4 grid. Use Paint plates to draw
-            lines, Paint arrows to add arrowed lines, Roll crust to place ocean
-            or continental markers, Identify plates to add plate numbers, Roll
-            direction to drop movement arrows, Paint continent to place nodes
-            and reshape landmasses (drag nodes to edit, right-drag to rotate),
-            press Delete to remove a continent, Ctrl+Z to undo, and right-click
-            to erase points or lines.
+            Build an A4 point cloud, sketch plates, and layer crust, directions,
+            arrows, continents, and volcanoes in a clear step order.
           </p>
         </div>
-        <div class="step-content">
-          <section class="controls">
-            <div class="control-card roll-card">
-              <div class="control-title">Roll</div>
-              <div class="control-actions roll-actions">
-                <button id="roll-btn" class="primary">Roll a point (2d6+2d6)</button>
-                <button id="roll-6-btn" class="secondary">Roll 6 points</button>
+        <div class="header-card">
+          <div class="card-title">Quick tips</div>
+          <ul class="tip-list">
+            <li>Right click deletes points, lines, or markers.</li>
+            <li>Delete removes the selected marker or continent.</li>
+            <li>Drag continents to move, right-drag to rotate.</li>
+          </ul>
+        </div>
+      </header>
+
+      <main class="app-main">
+        <aside class="panel steps-panel">
+          <div class="panel-title">Workflow</div>
+          <ol class="stepper">
+            <li>
+              <span class="step-number">1</span>
+              <div class="step-body">
+                <div class="step-label">Roll points</div>
+                <div class="step-note">Seed the grid with 2d6+2d6.</div>
               </div>
-              <div class="control-hint">Rolls add seed points to the A4 grid.</div>
+            </li>
+            <li>
+              <span class="step-number">2</span>
+              <div class="step-body">
+                <div class="step-label">Paint plates</div>
+                <div class="step-note">Draw boundary lines between points.</div>
+              </div>
+            </li>
+            <li>
+              <span class="step-number">3</span>
+              <div class="step-body">
+                <div class="step-label">Identify plates</div>
+                <div class="step-note">Place plate numbers on the grid.</div>
+              </div>
+            </li>
+            <li>
+              <span class="step-number">4</span>
+              <div class="step-body">
+                <div class="step-label">
+                  Roll crust <span class="step-flag">Optional</span>
+                </div>
+                <div class="step-note">Drop oceanic or continental markers.</div>
+              </div>
+            </li>
+            <li>
+              <span class="step-number">5</span>
+              <div class="step-body">
+                <div class="step-label">Paint continents</div>
+                <div class="step-note">Sketch landmasses from nodes.</div>
+              </div>
+            </li>
+            <li>
+              <span class="step-number">6</span>
+              <div class="step-body">
+                <div class="step-label">Roll directions</div>
+                <div class="step-note">Assign movement arrows.</div>
+              </div>
+            </li>
+            <li>
+              <span class="step-number">7</span>
+              <div class="step-body">
+                <div class="step-label">Move continents</div>
+                <div class="step-note">Drag to move, right-drag to rotate.</div>
+              </div>
+            </li>
+            <li>
+              <span class="step-number">8</span>
+              <div class="step-body">
+                <div class="step-label">Paint arrows</div>
+                <div class="step-note">Draw plate motion vectors.</div>
+              </div>
+            </li>
+            <li>
+              <span class="step-number">9</span>
+              <div class="step-body">
+                <div class="step-label">Add volcanoes</div>
+                <div class="step-note">Place volcanic icons.</div>
+              </div>
+            </li>
+          </ol>
+        </aside>
+
+        <section class="panel workspace-panel" id="grid-step">
+          <div class="workspace-header">
+            <div>
+              <div class="section-kicker">Board</div>
+              <h2>Point Cloud Grid</h2>
             </div>
-            <div class="control-card tool-card">
-              <div class="control-title">Tools</div>
-              <div class="control-actions tool-actions">
-                <button id="pencil-btn" class="secondary" aria-pressed="false">Paint plates</button>
-                <button id="arrow-btn" class="secondary" aria-pressed="false">Paint arrows</button>
-                <button id="crust-btn" class="secondary" aria-pressed="false">Roll crust</button>
-                <button id="plate-id-btn" class="secondary" aria-pressed="false">Identify plate</button>
-                <button id="direction-btn" class="secondary" aria-pressed="false">Roll direction</button>
-                <button id="continent-btn" class="secondary" aria-pressed="false">Paint continent</button>
-                <button id="delete-continent-btn" class="ghost">Delete continent</button>
-                <button id="clear-btn" class="danger">Clear all</button>
+            <div class="workspace-actions">
+              <button id="undo-btn" class="secondary">Undo</button>
+              <button id="redo-btn" class="secondary">Redo</button>
+            </div>
+          </div>
+
+          <div class="workspace-meta">
+            <div class="status-grid">
+              <div class="status-item">
+                <span class="status-label">Tool</span>
+                <span id="tool-mode" class="status-value">Roll</span>
               </div>
-              <div class="control-hint">
-                Left click places or drags. Right click deletes. Delete removes selected. Ctrl+Z undoes.
+              <div class="status-item">
+                <span class="status-label">Filled</span>
+                <span class="status-value"><span id="filled-count">0</span>/324</span>
+              </div>
+              <div class="status-item">
+                <span class="status-label">Last sector</span>
+                <span id="last-sector" class="status-value">-</span>
+              </div>
+              <div class="status-item">
+                <span class="status-label">Last cell</span>
+                <span id="last-cell" class="status-value">-</span>
               </div>
             </div>
-            <div class="control-card status-card">
-              <div class="control-title">Status</div>
-              <div class="status-grid">
-                <div class="status-item">
-                  <span class="status-label">Tool</span>
-                  <span id="tool-mode" class="status-value">Roll</span>
-                </div>
-                <div class="status-item">
-                  <span class="status-label">Filled</span>
-                  <span class="status-value"><span id="filled-count">0</span>/324</span>
-                </div>
-                <div class="status-item">
-                  <span class="status-label">Last sector</span>
-                  <span id="last-sector" class="status-value">-</span>
-                </div>
-                <div class="status-item">
-                  <span class="status-label">Last cell</span>
-                  <span id="last-cell" class="status-value">-</span>
-                </div>
-                <div id="message" class="message status-message" aria-live="polite"></div>
-              </div>
+            <div class="status-notes">
+              <div id="message" class="message status-message" aria-live="polite"></div>
               <div id="continent-hint" class="hint-line" aria-live="polite"></div>
             </div>
-          </section>
+          </div>
 
           <section class="board-wrap">
             <div class="board-stack">
@@ -116,9 +160,56 @@
               ></svg>
             </div>
           </section>
-        </div>
-      </section>
-    </main>
+        </section>
+
+        <aside class="panel control-panel">
+          <div class="panel-block">
+            <div class="panel-title">Step 1: Roll points</div>
+            <div class="button-stack">
+              <button id="roll-btn" class="primary">Roll a point (2d6+2d6)</button>
+              <button id="roll-6-btn" class="secondary">Roll 6 points</button>
+            </div>
+            <div class="panel-hint">Rolls add seed points to the A4 grid.</div>
+          </div>
+
+          <div class="panel-block">
+            <div class="panel-title">Steps 2-9: Tools</div>
+            <div class="button-grid">
+              <button id="pencil-btn" class="secondary" aria-pressed="false">Paint plates</button>
+              <button id="plate-id-btn" class="secondary" aria-pressed="false">Identify plates</button>
+              <button id="crust-btn" class="secondary" aria-pressed="false">Roll crust</button>
+              <button id="continent-btn" class="secondary" aria-pressed="false">Paint continents</button>
+              <button id="direction-btn" class="secondary" aria-pressed="false">Roll directions</button>
+              <button id="arrow-btn" class="secondary" aria-pressed="false">Paint arrows</button>
+              <button id="volcano-btn" class="secondary" aria-pressed="false">Add volcanoes</button>
+            </div>
+            <div class="panel-hint">
+              Left click places or drags. Right click deletes. Delete removes selected.
+            </div>
+          </div>
+
+          <div class="panel-block">
+            <div class="panel-title">Clear layers</div>
+            <div class="button-grid">
+              <button id="clear-points-btn" class="ghost">Clear points</button>
+              <button id="clear-arrows-btn" class="ghost">Clear arrows</button>
+              <button id="clear-crust-btn" class="ghost">Clear crust</button>
+              <button id="clear-directions-btn" class="ghost">Clear directions</button>
+              <button id="clear-plates-btn" class="ghost">Clear plate numbers</button>
+              <button id="clear-volcanoes-btn" class="ghost">Clear volcanoes</button>
+            </div>
+          </div>
+
+          <div class="panel-block">
+            <div class="panel-title">Danger zone</div>
+            <div class="button-stack">
+              <button id="delete-continent-btn" class="ghost">Delete continent</button>
+              <button id="clear-btn" class="danger">Clear all</button>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
 
     <script src="app.js"></script>
   </body>

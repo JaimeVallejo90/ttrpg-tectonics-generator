@@ -34,10 +34,12 @@
   const markerHitRadius = Math.min(microW, microH) * 0.45;
   const markerIconSize = Math.min(microW, microH) * 0.75;
   const markerNumberSize = Math.min(microW, microH) * 0.6;
+  const volcanoIconSize = Math.min(microW, microH) * 0.55;
   const crustIcons = {
     ocean: "\u{1F30A}",
     continent: "\u26F0\uFE0F",
   };
+  const volcanoIcon = "\u{1F30B}";
   const directionIcons = {
     1: "\u2B06\uFE0F",
     2: "\u2197\uFE0F",
@@ -58,6 +60,7 @@
   const state = {
     selectedCells: new Set(),
     history: [],
+    future: [],
     lastSector: null,
     lastCell: null,
     tool: "roll",
@@ -90,8 +93,17 @@
     ui.plateIdBtn = document.getElementById("plate-id-btn");
     ui.directionBtn = document.getElementById("direction-btn");
     ui.continentBtn = document.getElementById("continent-btn");
+    ui.volcanoBtn = document.getElementById("volcano-btn");
     ui.deleteContinentBtn = document.getElementById("delete-continent-btn");
     ui.clearBtn = document.getElementById("clear-btn");
+    ui.undoBtn = document.getElementById("undo-btn");
+    ui.redoBtn = document.getElementById("redo-btn");
+    ui.clearPointsBtn = document.getElementById("clear-points-btn");
+    ui.clearArrowsBtn = document.getElementById("clear-arrows-btn");
+    ui.clearCrustBtn = document.getElementById("clear-crust-btn");
+    ui.clearDirectionsBtn = document.getElementById("clear-directions-btn");
+    ui.clearPlatesBtn = document.getElementById("clear-plates-btn");
+    ui.clearVolcanoesBtn = document.getElementById("clear-volcanoes-btn");
     ui.toolMode = document.getElementById("tool-mode");
     ui.lastSector = document.getElementById("last-sector");
     ui.lastCell = document.getElementById("last-cell");
@@ -122,8 +134,17 @@
     ui.plateIdBtn.addEventListener("click", togglePlateId);
     ui.directionBtn.addEventListener("click", toggleDirection);
     ui.continentBtn.addEventListener("click", toggleContinent);
+    ui.volcanoBtn.addEventListener("click", toggleVolcano);
     ui.deleteContinentBtn.addEventListener("click", handleDeleteContinent);
     ui.clearBtn.addEventListener("click", handleClearAll);
+    ui.undoBtn.addEventListener("click", handleUndo);
+    ui.redoBtn.addEventListener("click", handleRedo);
+    ui.clearPointsBtn.addEventListener("click", handleClearPoints);
+    ui.clearArrowsBtn.addEventListener("click", handleClearArrows);
+    ui.clearCrustBtn.addEventListener("click", handleClearCrust);
+    ui.clearDirectionsBtn.addEventListener("click", handleClearDirections);
+    ui.clearPlatesBtn.addEventListener("click", handleClearPlates);
+    ui.clearVolcanoesBtn.addEventListener("click", handleClearVolcanoes);
     ui.board.addEventListener("pointerdown", handlePointerDown);
     ui.board.addEventListener("pointermove", handlePointerMove);
     ui.board.addEventListener("pointerup", handlePointerUp);
@@ -150,6 +171,11 @@
     window.addEventListener("keydown", handleKeydown);
 
     render();
+  }
+
+  function recordHistory(entry) {
+    state.history.push(entry);
+    state.future = [];
   }
 
   function rollD6() {
@@ -242,7 +268,7 @@
   }
 
   function isMarkerTool(tool) {
-    return tool === "crust" || tool === "plate-id" || tool === "direction";
+    return tool === "crust" || tool === "plate-id" || tool === "direction" || tool === "volcano";
   }
 
   function setTool(nextTool) {
@@ -293,6 +319,10 @@
     setTool("continent");
   }
 
+  function toggleVolcano() {
+    setTool("volcano");
+  }
+
   function hasMarks() {
     return (
       state.selectedCells.size > 0 ||
@@ -323,10 +353,131 @@
       return;
     }
     const snapshot = createClearSnapshot();
-    state.history.push({ type: "clear", snapshot });
+    recordHistory({ type: "clear", snapshot });
     clearAllState();
     state.clearConfirm = false;
     setMessage("Cleared all marks.");
+    render();
+  }
+
+  function handleUndo() {
+    cancelClearConfirm();
+    undoLast();
+  }
+
+  function handleRedo() {
+    cancelClearConfirm();
+    redoLast();
+  }
+
+  function handleClearPoints() {
+    cancelClearConfirm();
+    clearPoints();
+  }
+
+  function handleClearArrows() {
+    cancelClearConfirm();
+    clearLinesByType("arrow", "Arrows");
+  }
+
+  function handleClearCrust() {
+    cancelClearConfirm();
+    clearMarkersByType("crust", "Crust markers");
+  }
+
+  function handleClearDirections() {
+    cancelClearConfirm();
+    clearMarkersByType("direction", "Directions");
+  }
+
+  function handleClearPlates() {
+    cancelClearConfirm();
+    clearMarkersByType("plate-id", "Plate numbers");
+  }
+
+  function handleClearVolcanoes() {
+    cancelClearConfirm();
+    clearMarkersByType("volcano", "Volcanoes");
+  }
+
+  function clearPoints() {
+    if (state.selectedCells.size === 0) {
+      setMessage("No points to clear.");
+      render();
+      return;
+    }
+    const points = Array.from(state.selectedCells);
+    state.selectedCells.clear();
+    state.lastSector = null;
+    state.lastCell = null;
+    recordHistory({ type: "bulk-clear", itemType: "points", points });
+    setMessage("Points cleared.");
+    render();
+  }
+
+  function clearLinesByType(lineType, label) {
+    const removed = [];
+    const remaining = [];
+    state.lines.forEach((line, index) => {
+      const currentType = line.lineType || "plate";
+      if (currentType === lineType) {
+        removed.push({ line: { ...line }, index });
+      } else {
+        remaining.push(line);
+      }
+    });
+    if (removed.length === 0) {
+      setMessage(`No ${label.toLowerCase()} to clear.`);
+      render();
+      return;
+    }
+    state.lines = remaining;
+    if (state.currentLine && (state.currentLine.lineType || "plate") === lineType) {
+      state.currentLine = null;
+      state.isDrawing = false;
+    }
+    recordHistory({
+      type: "bulk-clear",
+      itemType: "lines",
+      lineType,
+      items: removed,
+    });
+    setMessage(`${label} cleared.`);
+    render();
+  }
+
+  function clearMarkersByType(markerType, label) {
+    const removed = [];
+    const removedIds = new Set();
+    state.markers.forEach((marker, index) => {
+      if (marker.type === markerType) {
+        removed.push({ marker: cloneMarker(marker), index });
+        removedIds.add(marker.id);
+      }
+    });
+    if (removed.length === 0) {
+      setMessage(`No ${label.toLowerCase()} to clear.`);
+      render();
+      return;
+    }
+    const selectedMarkerId = state.selectedMarkerId;
+    state.markers = state.markers.filter((marker) => !removedIds.has(marker.id));
+    if (selectedMarkerId && removedIds.has(selectedMarkerId)) {
+      state.selectedMarkerId = null;
+    }
+    if (state.markerDrag && removedIds.has(state.markerDrag.id)) {
+      state.markerDrag = null;
+    }
+    recordHistory({
+      type: "bulk-clear",
+      itemType: "markers",
+      markerType,
+      items: removed,
+      selectedMarkerId: selectedMarkerId && removedIds.has(selectedMarkerId)
+        ? selectedMarkerId
+        : null,
+    });
+    setMessage(`${label} cleared.`);
     render();
   }
 
@@ -489,7 +640,17 @@
       }
       return;
     }
-    if ((event.ctrlKey || event.metaKey) && key === "z") {
+    const hasModifier = event.ctrlKey || event.metaKey;
+    if (hasModifier && (key === "y" || (key === "z" && event.shiftKey))) {
+      if (isEditableTarget(event.target)) {
+        return;
+      }
+      cancelClearConfirm();
+      event.preventDefault();
+      redoLast();
+      return;
+    }
+    if (hasModifier && key === "z") {
       if (isEditableTarget(event.target)) {
         return;
       }
@@ -546,7 +707,11 @@
       return;
     }
     state.markers.push(marker);
-    state.history.push({ type: "marker-add", marker: cloneMarker(marker) });
+    recordHistory({
+      type: "marker-add",
+      marker: cloneMarker(marker),
+      index: state.markers.length - 1,
+    });
     selectMarker(marker.id);
     render();
   }
@@ -617,7 +782,7 @@
     if (!hasMarkerChanged(state.markerDrag.before, marker)) {
       return;
     }
-    state.history.push({
+    recordHistory({
       type: "marker-update",
       id: marker.id,
       before: state.markerDrag.before,
@@ -650,8 +815,13 @@
     const minLength =
       Math.min(microW, microH) * (lineType === "arrow" ? 0.3 : 0.2);
     if (length >= minLength) {
-      state.lines.push({ x1, y1, x2, y2, lineType });
-      state.history.push({ type: "line" });
+      const line = { x1, y1, x2, y2, lineType };
+      state.lines.push(line);
+      recordHistory({
+        type: "line-add",
+        line: { ...line },
+        index: state.lines.length - 1,
+      });
       setMessage(lineType === "arrow" ? "Arrow drawn." : "Line drawn.");
     }
     state.currentLine = null;
@@ -802,7 +972,7 @@
     const sectorRow = Math.floor(microRow / SUBGRID_SIZE);
     const cellCol = (microCol % SUBGRID_SIZE) + 1;
     const cellRow = (microRow % SUBGRID_SIZE) + 1;
-    state.history.push({
+    recordHistory({
       type: "erase",
       itemType: "point",
       key,
@@ -818,7 +988,7 @@
     if (!line) {
       return;
     }
-    state.history.push({
+    recordHistory({
       type: "erase",
       itemType: "line",
       line,
@@ -846,6 +1016,10 @@
       const number = getNextPlateNumber();
       setMessage(`Plate ${number}.`);
       return createMarker("plate-id", point, number);
+    }
+    if (state.tool === "volcano") {
+      setMessage("Volcano placed.");
+      return createMarker("volcano", point, "volcano");
     }
     return null;
   }
@@ -884,11 +1058,20 @@
     if (marker.type === "direction") {
       return directionIcons[marker.value] || "";
     }
+    if (marker.type === "volcano") {
+      return volcanoIcon;
+    }
     return "";
   }
 
   function getMarkerFontSize(marker) {
-    return marker.type === "plate-id" ? markerNumberSize : markerIconSize;
+    if (marker.type === "plate-id") {
+      return markerNumberSize;
+    }
+    if (marker.type === "volcano") {
+      return volcanoIconSize;
+    }
+    return markerIconSize;
   }
 
   function findMarkerAt(point) {
@@ -911,14 +1094,14 @@
     return deleteMarkerById(hit.id);
   }
 
-  function deleteMarkerById(id, recordHistory = true) {
+  function deleteMarkerById(id, shouldRecordHistory = true) {
     const index = state.markers.findIndex((marker) => marker.id === id);
     if (index < 0) {
       return false;
     }
     const [removed] = state.markers.splice(index, 1);
-    if (recordHistory && removed) {
-      state.history.push({
+    if (shouldRecordHistory && removed) {
+      recordHistory({
         type: "marker-delete",
         marker: cloneMarker(removed),
         index,
@@ -934,11 +1117,11 @@
     return true;
   }
 
-  function deleteSelectedMarker(recordHistory = true) {
+  function deleteSelectedMarker(shouldRecordHistory = true) {
     if (!state.selectedMarkerId) {
       return false;
     }
-    return deleteMarkerById(state.selectedMarkerId, recordHistory);
+    return deleteMarkerById(state.selectedMarkerId, shouldRecordHistory);
   }
 
   function selectMarker(id) {
@@ -991,7 +1174,7 @@
     state.selectedCells.add(key);
     const sector = { col: sectorCol, row: sectorRow };
     const cell = { col: cellCol, row: cellRow };
-    state.history.push({ type: "point", key, sector, cell });
+    recordHistory({ type: "point", key, sector, cell });
     state.lastSector = sector;
     state.lastCell = cell;
     return true;
@@ -1005,45 +1188,296 @@
       return;
     }
     state.clearConfirm = false;
-    if (last.type === "point") {
-      state.selectedCells.delete(last.key);
-    }
-    if (last.type === "line") {
-      state.lines.pop();
-    }
-    if (last.type === "erase") {
-      if (last.itemType === "point") {
-        state.selectedCells.add(last.key);
-      }
-      if (last.itemType === "line") {
-        const insertAt = clamp(last.index, 0, state.lines.length);
-        state.lines.splice(insertAt, 0, last.line);
-      }
-    }
-    if (last.type === "marker-add") {
-      undoMarkerAdd(last);
-    }
-    if (last.type === "marker-delete") {
-      undoMarkerDelete(last);
-    }
-    if (last.type === "marker-update") {
-      undoMarkerUpdate(last);
-    }
-    if (last.type === "continent-add") {
-      undoContinentAdd(last);
-    }
-    if (last.type === "continent-delete") {
-      undoContinentDelete(last);
-    }
-    if (last.type === "continent-update") {
-      undoContinentUpdate(last);
-    }
-    if (last.type === "clear") {
-      restoreClearSnapshot(last.snapshot);
-    }
+    applyUndoEntry(last);
+    state.future.push(last);
     syncLastPoint();
     setMessage("Undo.");
     render();
+  }
+
+  function redoLast() {
+    const next = state.future.pop();
+    if (!next) {
+      setMessage("Nothing to redo.");
+      render();
+      return;
+    }
+    state.clearConfirm = false;
+    applyRedoEntry(next);
+    state.history.push(next);
+    syncLastPoint();
+    setMessage("Redo.");
+    render();
+  }
+
+  function applyUndoEntry(entry) {
+    if (entry.type === "point") {
+      state.selectedCells.delete(entry.key);
+      return;
+    }
+    if (entry.type === "line-add") {
+      removeLineBySnapshot(entry);
+      return;
+    }
+    if (entry.type === "line") {
+      state.lines.pop();
+      return;
+    }
+    if (entry.type === "erase") {
+      if (entry.itemType === "point") {
+        state.selectedCells.add(entry.key);
+        return;
+      }
+      if (entry.itemType === "line") {
+        insertLineAt(entry.index, entry.line);
+      }
+      return;
+    }
+    if (entry.type === "marker-add") {
+      undoMarkerAdd(entry);
+      return;
+    }
+    if (entry.type === "marker-delete") {
+      undoMarkerDelete(entry);
+      return;
+    }
+    if (entry.type === "marker-update") {
+      undoMarkerUpdate(entry);
+      return;
+    }
+    if (entry.type === "continent-add") {
+      undoContinentAdd(entry);
+      return;
+    }
+    if (entry.type === "continent-delete") {
+      undoContinentDelete(entry);
+      return;
+    }
+    if (entry.type === "continent-update") {
+      undoContinentUpdate(entry);
+      return;
+    }
+    if (entry.type === "clear") {
+      restoreClearSnapshot(entry.snapshot);
+      return;
+    }
+    if (entry.type === "bulk-clear") {
+      undoBulkClear(entry);
+    }
+  }
+
+  function applyRedoEntry(entry) {
+    if (entry.type === "point") {
+      state.selectedCells.add(entry.key);
+      return;
+    }
+    if (entry.type === "line-add") {
+      insertLineAt(entry.index, entry.line);
+      return;
+    }
+    if (entry.type === "line") {
+      return;
+    }
+    if (entry.type === "erase") {
+      if (entry.itemType === "point") {
+        state.selectedCells.delete(entry.key);
+        return;
+      }
+      if (entry.itemType === "line") {
+        removeLineBySnapshot(entry);
+      }
+      return;
+    }
+    if (entry.type === "marker-add") {
+      redoMarkerAdd(entry);
+      return;
+    }
+    if (entry.type === "marker-delete") {
+      redoMarkerDelete(entry);
+      return;
+    }
+    if (entry.type === "marker-update") {
+      redoMarkerUpdate(entry);
+      return;
+    }
+    if (entry.type === "continent-add") {
+      redoContinentAdd(entry);
+      return;
+    }
+    if (entry.type === "continent-delete") {
+      redoContinentDelete(entry);
+      return;
+    }
+    if (entry.type === "continent-update") {
+      redoContinentUpdate(entry);
+      return;
+    }
+    if (entry.type === "clear") {
+      clearAllState();
+      return;
+    }
+    if (entry.type === "bulk-clear") {
+      redoBulkClear(entry);
+    }
+  }
+
+  function undoBulkClear(entry) {
+    if (entry.itemType === "points") {
+      entry.points.forEach((key) => state.selectedCells.add(key));
+      return;
+    }
+    if (entry.itemType === "lines") {
+      restoreLines(entry.items);
+      return;
+    }
+    if (entry.itemType === "markers") {
+      restoreMarkers(entry.items);
+      if (entry.selectedMarkerId) {
+        state.selectedMarkerId = entry.selectedMarkerId;
+      }
+    }
+  }
+
+  function redoBulkClear(entry) {
+    if (entry.itemType === "points") {
+      entry.points.forEach((key) => state.selectedCells.delete(key));
+      return;
+    }
+    if (entry.itemType === "lines") {
+      removeLines(entry.items);
+      return;
+    }
+    if (entry.itemType === "markers") {
+      removeMarkers(entry.items);
+    }
+  }
+
+  function restoreLines(items) {
+    const sorted = [...items].sort((a, b) => a.index - b.index);
+    sorted.forEach((item) => insertLineAt(item.index, item.line));
+  }
+
+  function removeLines(items) {
+    const sorted = [...items].sort((a, b) => b.index - a.index);
+    sorted.forEach((item) => removeLineBySnapshot(item));
+  }
+
+  function insertLineAt(index, line) {
+    const insertAt = clamp(index, 0, state.lines.length);
+    state.lines.splice(insertAt, 0, { ...line });
+  }
+
+  function removeLineBySnapshot(entry) {
+    if (
+      Number.isInteger(entry.index) &&
+      entry.index >= 0 &&
+      entry.index < state.lines.length
+    ) {
+      const candidate = state.lines[entry.index];
+      if (candidate && linesMatch(candidate, entry.line)) {
+        state.lines.splice(entry.index, 1);
+        return;
+      }
+    }
+    const matchIndex = state.lines.findIndex((line) => linesMatch(line, entry.line));
+    if (matchIndex >= 0) {
+      state.lines.splice(matchIndex, 1);
+    }
+  }
+
+  function linesMatch(a, b) {
+    if (!a || !b) {
+      return false;
+    }
+    const epsilon = 0.0001;
+    return (
+      Math.abs(a.x1 - b.x1) <= epsilon &&
+      Math.abs(a.y1 - b.y1) <= epsilon &&
+      Math.abs(a.x2 - b.x2) <= epsilon &&
+      Math.abs(a.y2 - b.y2) <= epsilon &&
+      (a.lineType || "plate") === (b.lineType || "plate")
+    );
+  }
+
+  function restoreMarkers(items) {
+    const sorted = [...items].sort((a, b) => a.index - b.index);
+    sorted.forEach((item) => insertMarkerAt(item.index, item.marker));
+  }
+
+  function removeMarkers(items) {
+    const ids = new Set(items.map((item) => item.marker.id));
+    state.markers = state.markers.filter((marker) => !ids.has(marker.id));
+    if (state.selectedMarkerId && ids.has(state.selectedMarkerId)) {
+      state.selectedMarkerId = null;
+    }
+    if (state.markerDrag && ids.has(state.markerDrag.id)) {
+      state.markerDrag = null;
+    }
+  }
+
+  function insertMarkerAt(index, marker) {
+    const insertAt = clamp(index, 0, state.markers.length);
+    const restored = cloneMarker(marker);
+    state.markers.splice(insertAt, 0, restored);
+    return restored;
+  }
+
+  function redoMarkerAdd(entry) {
+    const restored = insertMarkerAt(
+      Number.isInteger(entry.index) ? entry.index : state.markers.length,
+      entry.marker
+    );
+    selectMarker(restored.id);
+  }
+
+  function redoMarkerDelete(entry) {
+    removeMarkers([{ marker: entry.marker, index: entry.index }]);
+  }
+
+  function redoMarkerUpdate(entry) {
+    const marker = getMarkerById(entry.id);
+    if (!marker) {
+      return;
+    }
+    applyMarkerSnapshot(marker, entry.after);
+  }
+
+  function insertContinentAt(index, piece) {
+    const insertAt = clamp(index, 0, state.continentPieces.length);
+    const restored = cloneContinentPiece(piece);
+    state.continentPieces.splice(insertAt, 0, restored);
+    return restored;
+  }
+
+  function removeContinentById(id) {
+    const index = state.continentPieces.findIndex((piece) => piece.id === id);
+    if (index >= 0) {
+      state.continentPieces.splice(index, 1);
+    }
+    if (state.selectedContinentId === id) {
+      state.selectedContinentId = null;
+    }
+    state.continentHoverNode = null;
+  }
+
+  function redoContinentAdd(entry) {
+    const restored = insertContinentAt(
+      Number.isInteger(entry.index) ? entry.index : state.continentPieces.length,
+      entry.piece
+    );
+    selectContinent(restored.id);
+  }
+
+  function redoContinentDelete(entry) {
+    removeContinentById(entry.piece.id);
+  }
+
+  function redoContinentUpdate(entry) {
+    const piece = getContinentById(entry.id);
+    if (!piece) {
+      return;
+    }
+    applyContinentSnapshot(piece, entry.after);
   }
 
   function syncLastPoint() {
@@ -1075,6 +1509,14 @@
     ui.message.textContent = text || "";
   }
 
+  function countMarkersByType() {
+    const counts = {};
+    state.markers.forEach((marker) => {
+      counts[marker.type] = (counts[marker.type] || 0) + 1;
+    });
+    return counts;
+  }
+
   function render() {
     if (state.tool === "pencil") {
       ui.toolMode.textContent = "Paint plates";
@@ -1083,21 +1525,35 @@
     } else if (state.tool === "crust") {
       ui.toolMode.textContent = "Roll crust";
     } else if (state.tool === "plate-id") {
-      ui.toolMode.textContent = "Identify plate";
+      ui.toolMode.textContent = "Identify plates";
     } else if (state.tool === "direction") {
-      ui.toolMode.textContent = "Roll direction";
+      ui.toolMode.textContent = "Roll directions";
     } else if (state.tool === "continent") {
-      ui.toolMode.textContent = "Paint continent";
+      ui.toolMode.textContent = "Paint continents";
+    } else if (state.tool === "volcano") {
+      ui.toolMode.textContent = "Add volcanoes";
     } else {
       ui.toolMode.textContent = "Roll";
     }
     ui.lastSector.textContent = formatLastSector();
     ui.lastCell.textContent = formatLastCell();
     ui.filled.textContent = state.selectedCells.size;
+    const markerCounts = countMarkersByType();
+    const arrowCount = state.lines.filter(
+      (line) => (line.lineType || "plate") === "arrow"
+    ).length;
     ui.rollBtn.disabled = state.selectedCells.size >= TOTAL_CELLS;
     ui.rollSixBtn.disabled = state.selectedCells.size >= TOTAL_CELLS;
     ui.clearBtn.disabled = !hasMarks();
     ui.clearBtn.textContent = state.clearConfirm ? "Confirm clear" : "Clear all";
+    ui.undoBtn.disabled = state.history.length === 0;
+    ui.redoBtn.disabled = state.future.length === 0;
+    ui.clearPointsBtn.disabled = state.selectedCells.size === 0;
+    ui.clearArrowsBtn.disabled = arrowCount === 0;
+    ui.clearCrustBtn.disabled = (markerCounts.crust || 0) === 0;
+    ui.clearDirectionsBtn.disabled = (markerCounts.direction || 0) === 0;
+    ui.clearPlatesBtn.disabled = (markerCounts["plate-id"] || 0) === 0;
+    ui.clearVolcanoesBtn.disabled = (markerCounts.volcano || 0) === 0;
     ui.pencilBtn.setAttribute("aria-pressed", state.tool === "pencil");
     ui.pencilBtn.classList.toggle("active", state.tool === "pencil");
     ui.arrowBtn.setAttribute("aria-pressed", state.tool === "arrow");
@@ -1110,6 +1566,8 @@
     ui.directionBtn.classList.toggle("active", state.tool === "direction");
     ui.continentBtn.setAttribute("aria-pressed", state.tool === "continent");
     ui.continentBtn.classList.toggle("active", state.tool === "continent");
+    ui.volcanoBtn.setAttribute("aria-pressed", state.tool === "volcano");
+    ui.volcanoBtn.classList.toggle("active", state.tool === "volcano");
     ui.deleteContinentBtn.disabled = !state.selectedContinentId;
     ui.board.classList.toggle("pencil-active", isLineTool(state.tool));
     document.body.dataset.tool = state.tool;
@@ -1468,7 +1926,7 @@
     if (!hasContinentChanged(state.continentDrag.before, piece)) {
       return;
     }
-    state.history.push({
+    recordHistory({
       type: "continent-update",
       id: piece.id,
       before: state.continentDrag.before,
@@ -1490,9 +1948,10 @@
     }
     const piece = createContinentPiece(state.continentDraft);
     state.continentPieces.push(piece);
-    state.history.push({
+    recordHistory({
       type: "continent-add",
       piece: cloneContinentPiece(piece),
+      index: state.continentPieces.length - 1,
     });
     selectContinent(piece.id);
     state.continentDraft = [];
@@ -1570,7 +2029,7 @@
     bringContinentToFront(id);
   }
 
-  function deleteSelectedContinent(recordHistory = true) {
+  function deleteSelectedContinent(shouldRecordHistory = true) {
     if (!state.selectedContinentId) {
       return false;
     }
@@ -1582,8 +2041,8 @@
       return false;
     }
     const [removed] = state.continentPieces.splice(index, 1);
-    if (recordHistory && removed) {
-      state.history.push({
+    if (shouldRecordHistory && removed) {
+      recordHistory({
         type: "continent-delete",
         piece: cloneContinentPiece(removed),
         index,
@@ -1899,6 +2358,10 @@
     if (state.tool === "direction") {
       ui.continentHint.textContent =
         "Click to roll a direction arrow. Drag to move.";
+      return;
+    }
+    if (state.tool === "volcano") {
+      ui.continentHint.textContent = "Click to place a volcano. Drag to move.";
       return;
     }
     if (state.tool === "pencil") {
