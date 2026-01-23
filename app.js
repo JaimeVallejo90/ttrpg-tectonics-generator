@@ -1,30 +1,29 @@
 (() => {
   const WIDTH = 297;
   const HEIGHT = 210;
-  const GRID = 6;
-  const INNER_START = 0;
-  const INNER_COUNT = 6;
-  const SECTOR_SIZE = 2;
-  const SECTOR_COUNT = 3;
-  const SUBGRID_SIZE = 6;
-  const MICRO_PER_BIG = SUBGRID_SIZE / SECTOR_SIZE;
-  const MICRO_COUNT = INNER_COUNT * MICRO_PER_BIG;
-  const TOTAL_CELLS = MICRO_COUNT * MICRO_COUNT;
+  const GRID = 20;
+  const TOTAL_CELLS = GRID * GRID;
   const MAX_ATTEMPTS = 1000;
+  const MAX_PLATE_CONNECTIONS = 3;
+  const CORNERS = [
+    { id: "corner-tl-btn", col: 1, row: 1 },
+    { id: "corner-tr-btn", col: GRID, row: 1 },
+    { id: "corner-br-btn", col: GRID, row: GRID },
+    { id: "corner-bl-btn", col: 1, row: GRID },
+  ];
 
   const cellW = WIDTH / GRID;
   const cellH = HEIGHT / GRID;
-  const innerLeft = cellW * INNER_START;
-  const innerTop = cellH * INNER_START;
-  const innerRight = innerLeft + INNER_COUNT * cellW;
-  const innerBottom = innerTop + INNER_COUNT * cellH;
-  const microW = cellW / MICRO_PER_BIG;
-  const microH = cellH / MICRO_PER_BIG;
+  const innerLeft = 0;
+  const innerTop = 0;
+  const microW = cellW;
+  const microH = cellH;
   const dotRadius = Math.min(microW, microH) * 0.12;
   const draftPointRadius = Math.min(microW, microH) * 0.14;
   const closeDistance = Math.min(microW, microH) * 0.6;
   const nodeRadius = Math.min(microW, microH) * 0.18;
   const nodeHitRadius = nodeRadius * 1.9;
+  const plateHitRadius = Math.min(microW, microH) * 0.5;
   const continentFill = "rgba(194, 99, 42, 0.4)";
   const continentStroke = "rgba(27, 26, 23, 0.85)";
   const continentStrokeActive = "rgba(194, 99, 42, 0.95)";
@@ -61,12 +60,13 @@
     selectedCells: new Set(),
     history: [],
     future: [],
-    lastSector: null,
-    lastCell: null,
+    lastRoll: null,
     tool: "roll",
     isDrawing: false,
     currentLine: null,
     lines: [],
+    plateDraft: null,
+    wrapSide: null,
     markers: [],
     selectedMarkerId: null,
     markerDrag: null,
@@ -82,6 +82,8 @@
   };
 
   const ui = {};
+  let edgeLayoutFrame = null;
+  let lastEdgeLayout = null;
 
   function init() {
     ui.board = document.getElementById("board");
@@ -103,6 +105,7 @@
     ui.clearCrustBtn = document.getElementById("clear-crust-btn");
     ui.clearDirectionsBtn = document.getElementById("clear-directions-btn");
     ui.clearPlatesBtn = document.getElementById("clear-plates-btn");
+    ui.clearContinentsBtn = document.getElementById("clear-continents-btn");
     ui.clearVolcanoesBtn = document.getElementById("clear-volcanoes-btn");
     ui.toolMode = document.getElementById("tool-mode");
     ui.lastSector = document.getElementById("last-sector");
@@ -112,6 +115,15 @@
     ui.continentCanvas = document.getElementById("continent-canvas");
     ui.markerLayer = document.getElementById("marker-layer");
     ui.continentHint = document.getElementById("continent-hint");
+    ui.header = document.querySelector(".app-header");
+    ui.boardStack = document.querySelector(".board-stack");
+    ui.edgeControls = document.getElementById("edge-controls");
+    ui.wrapLeftBtn = document.getElementById("wrap-left-btn");
+    ui.wrapRightBtn = document.getElementById("wrap-right-btn");
+    ui.cornerButtons = CORNERS.map((corner) => ({
+      ...corner,
+      el: document.getElementById(corner.id),
+    }));
     ui.continentCtx = ui.continentCanvas
       ? ui.continentCanvas.getContext("2d")
       : null;
@@ -144,6 +156,7 @@
     ui.clearCrustBtn.addEventListener("click", handleClearCrust);
     ui.clearDirectionsBtn.addEventListener("click", handleClearDirections);
     ui.clearPlatesBtn.addEventListener("click", handleClearPlates);
+    ui.clearContinentsBtn.addEventListener("click", handleClearContinents);
     ui.clearVolcanoesBtn.addEventListener("click", handleClearVolcanoes);
     ui.board.addEventListener("pointerdown", handlePointerDown);
     ui.board.addEventListener("pointermove", handlePointerMove);
@@ -151,6 +164,22 @@
     ui.board.addEventListener("pointerleave", handlePointerUp);
     ui.board.addEventListener("pointercancel", handlePointerUp);
     ui.board.addEventListener("contextmenu", handleContextMenu);
+    if (ui.wrapLeftBtn) {
+      ui.wrapLeftBtn.addEventListener("click", () => toggleWrapSide("left"));
+    }
+    if (ui.wrapRightBtn) {
+      ui.wrapRightBtn.addEventListener("click", () => toggleWrapSide("right"));
+    }
+    if (ui.cornerButtons) {
+      ui.cornerButtons.forEach((corner) => {
+        if (!corner.el) {
+          return;
+        }
+        corner.el.addEventListener("click", () =>
+          toggleCornerPoint(corner.col, corner.row)
+        );
+      });
+    }
     if (ui.continentCanvas) {
       ui.continentCanvas.addEventListener("pointerdown", handleContinentPointerDown);
       ui.continentCanvas.addEventListener("pointermove", handleContinentPointerMove);
@@ -170,6 +199,7 @@
     window.addEventListener("resize", handleResize);
     window.addEventListener("keydown", handleKeydown);
 
+    updateHeaderOffset();
     render();
   }
 
@@ -182,13 +212,8 @@
     return Math.floor(Math.random() * 6) + 1;
   }
 
-  function toGroupIndex(value) {
-    return Math.floor((value - 1) / SECTOR_SIZE);
-  }
-
-  function groupLabel(index) {
-    const start = index * SECTOR_SIZE + 1;
-    return `${start}-${start + 1}`;
+  function rollD20() {
+    return Math.floor(Math.random() * 20) + 1;
   }
 
   function handleRoll() {
@@ -201,9 +226,7 @@
 
     const result = rollRandomPoint();
     if (result) {
-      setMessage(
-        `Marked ${groupLabel(result.sectorCol)} x ${groupLabel(result.sectorRow)} (${result.cellCol}, ${result.cellRow}).`
-      );
+      setMessage(`Marked (${result.col}, ${result.row}).`);
     } else {
       setMessage("No free cell found.");
     }
@@ -236,11 +259,7 @@
     if (added === 0) {
       setMessage("No free cell found.");
     } else {
-      const lastText = lastResult
-        ? ` Last ${groupLabel(lastResult.sectorCol)} x ${groupLabel(
-            lastResult.sectorRow
-          )} (${lastResult.cellCol}, ${lastResult.cellRow}).`
-        : "";
+      const lastText = lastResult ? ` Last (${lastResult.col}, ${lastResult.row}).` : "";
       setMessage(`Marked ${added} points.${lastText}`);
     }
 
@@ -249,15 +268,13 @@
 
   function rollRandomPoint() {
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-      const sectorCol = toGroupIndex(rollD6());
-      const sectorRow = toGroupIndex(rollD6());
-      const cellCol = rollD6();
-      const cellRow = rollD6();
-      const microCol = sectorCol * SUBGRID_SIZE + (cellCol - 1);
-      const microRow = sectorRow * SUBGRID_SIZE + (cellRow - 1);
+      const col = rollD20();
+      const row = rollD20();
+      const microCol = col - 1;
+      const microRow = row - 1;
 
-      if (addCell(microCol, microRow, sectorCol, sectorRow, cellCol, cellRow)) {
-        return { sectorCol, sectorRow, cellCol, cellRow };
+      if (addCell(microCol, microRow, col, row)) {
+        return { col, row };
       }
     }
     return null;
@@ -279,6 +296,8 @@
     if (previousTool !== state.tool) {
       state.isDrawing = false;
       state.currentLine = null;
+      state.plateDraft = null;
+      state.wrapSide = null;
     }
     if (!isMarkerTool(state.tool)) {
       state.markerDrag = null;
@@ -323,6 +342,127 @@
     setTool("volcano");
   }
 
+  function toggleWrapSide(side) {
+    if (state.tool !== "pencil") {
+      setMessage("Select Paint plates to use turn around.");
+      render();
+      return;
+    }
+    if (state.wrapSide === side) {
+      state.wrapSide = null;
+      setMessage("Turn around cleared.");
+    } else {
+      state.wrapSide = side;
+      setMessage(`Next connection will turn around on the ${side}.`);
+    }
+    render();
+  }
+
+  function clearPlateDraft() {
+    state.plateDraft = null;
+    if (state.currentLine && (state.currentLine.lineType || "plate") === "plate") {
+      state.currentLine = null;
+    }
+  }
+
+  function getPointCenter(col, row) {
+    return {
+      x: innerLeft + col * microW + microW / 2,
+      y: innerTop + row * microH + microH / 2,
+    };
+  }
+
+  function buildPlatePoint(hit) {
+    const center = getPointCenter(hit.col, hit.row);
+    return {
+      key: hit.key,
+      col: hit.col,
+      row: hit.row,
+      x: center.x,
+      y: center.y,
+    };
+  }
+
+  function countPlateConnections(key) {
+    let count = 0;
+    state.lines.forEach((line) => {
+      if ((line.lineType || "plate") !== "plate") {
+        return;
+      }
+      if (line.startKey === key || line.endKey === key) {
+        count += 1;
+      }
+    });
+    return count;
+  }
+
+  function hasPlateConnection(keyA, keyB) {
+    return state.lines.some((line) => {
+      if ((line.lineType || "plate") !== "plate") {
+        return false;
+      }
+      if (!line.startKey || !line.endKey) {
+        return false;
+      }
+      return (
+        (line.startKey === keyA && line.endKey === keyB) ||
+        (line.startKey === keyB && line.endKey === keyA)
+      );
+    });
+  }
+
+  function addPlateConnection(start, end, wrapSide) {
+    const line = {
+      x1: start.x,
+      y1: start.y,
+      x2: end.x,
+      y2: end.y,
+      lineType: "plate",
+      startKey: start.key,
+      endKey: end.key,
+      wrapSide: wrapSide || null,
+    };
+    state.lines.push(line);
+    recordHistory({
+      type: "line-add",
+      line: { ...line },
+      index: state.lines.length - 1,
+    });
+  }
+
+  function getWrappedLineSegments(x1, y1, x2, y2, wrapSide) {
+    if (!wrapSide) {
+      return [{ x1, y1, x2, y2 }];
+    }
+    const wrapEdgeX = wrapSide === "left" ? 0 : WIDTH;
+    const adjustedX2 = wrapSide === "left" ? x2 - WIDTH : x2 + WIDTH;
+    const dx = adjustedX2 - x1;
+    if (dx === 0) {
+      return [{ x1, y1, x2, y2 }];
+    }
+    const t = (wrapEdgeX - x1) / dx;
+    const yAtWrap = y1 + t * (y2 - y1);
+    const otherX = wrapEdgeX === 0 ? WIDTH : 0;
+    return [
+      { x1, y1, x2: wrapEdgeX, y2: yAtWrap },
+      { x1: otherX, y1: yAtWrap, x2, y2 },
+    ];
+  }
+
+  function getLineSegments(line) {
+    const lineType = line.lineType || "plate";
+    if (lineType !== "plate") {
+      return [line];
+    }
+    return getWrappedLineSegments(
+      line.x1,
+      line.y1,
+      line.x2,
+      line.y2,
+      line.wrapSide
+    );
+  }
+
   function hasMarks() {
     return (
       state.selectedCells.size > 0 ||
@@ -342,13 +482,13 @@
   function handleClearAll() {
     if (!hasMarks()) {
       state.clearConfirm = false;
-      setMessage("Nothing to clear.");
+      setMessage("Nothing to restart.");
       render();
       return;
     }
     if (!state.clearConfirm) {
       state.clearConfirm = true;
-      setMessage("Click Clear all again to confirm.");
+      setMessage("Click Restart again to confirm.");
       render();
       return;
     }
@@ -356,7 +496,7 @@
     recordHistory({ type: "clear", snapshot });
     clearAllState();
     state.clearConfirm = false;
-    setMessage("Cleared all marks.");
+    setMessage("Restarted.");
     render();
   }
 
@@ -395,6 +535,11 @@
     clearMarkersByType("plate-id", "Plate numbers");
   }
 
+  function handleClearContinents() {
+    cancelClearConfirm();
+    clearContinents();
+  }
+
   function handleClearVolcanoes() {
     cancelClearConfirm();
     clearMarkersByType("volcano", "Volcanoes");
@@ -406,10 +551,10 @@
       render();
       return;
     }
+    clearPlateDraft();
     const points = Array.from(state.selectedCells);
     state.selectedCells.clear();
-    state.lastSector = null;
-    state.lastCell = null;
+    state.lastRoll = null;
     recordHistory({ type: "bulk-clear", itemType: "points", points });
     setMessage("Points cleared.");
     render();
@@ -481,13 +626,44 @@
     render();
   }
 
+  function clearContinents() {
+    const hasDraft = state.continentDraft.length > 0;
+    if (state.continentPieces.length === 0 && !hasDraft) {
+      setMessage("No continents to clear.");
+      render();
+      return;
+    }
+    const removed = state.continentPieces.map((piece, index) => ({
+      piece: cloneContinentPiece(piece),
+      index,
+    }));
+    const selectedContinentId = state.selectedContinentId;
+    state.continentPieces = [];
+    state.continentDraft = [];
+    state.continentCursor = null;
+    state.continentDrag = null;
+    state.continentHoverNode = null;
+    state.selectedContinentId = null;
+    if (removed.length > 0) {
+      recordHistory({
+        type: "bulk-clear",
+        itemType: "continents",
+        items: removed,
+        selectedContinentId,
+      });
+    }
+    setMessage("Continents cleared.");
+    render();
+  }
+
   function clearAllState() {
     state.selectedCells.clear();
-    state.lastSector = null;
-    state.lastCell = null;
+    state.lastRoll = null;
     state.currentLine = null;
     state.isDrawing = false;
     state.lines = [];
+    state.plateDraft = null;
+    state.wrapSide = null;
     state.markers = [];
     state.selectedMarkerId = null;
     state.markerDrag = null;
@@ -505,8 +681,7 @@
     return {
       selectedCells: Array.from(state.selectedCells),
       lines: state.lines.map((line) => ({ ...line })),
-      lastSector: state.lastSector ? { ...state.lastSector } : null,
-      lastCell: state.lastCell ? { ...state.lastCell } : null,
+      lastRoll: state.lastRoll ? { ...state.lastRoll } : null,
       markers: state.markers.map(cloneMarker),
       selectedMarkerId: state.selectedMarkerId,
       continentPieces: state.continentPieces.map(cloneContinentPiece),
@@ -519,8 +694,7 @@
   function restoreClearSnapshot(snapshot) {
     state.selectedCells = new Set(snapshot.selectedCells);
     state.lines = snapshot.lines.map((line) => ({ ...line }));
-    state.lastSector = snapshot.lastSector ? { ...snapshot.lastSector } : null;
-    state.lastCell = snapshot.lastCell ? { ...snapshot.lastCell } : null;
+    state.lastRoll = snapshot.lastRoll ? { ...snapshot.lastRoll } : null;
     state.markers = snapshot.markers.map(cloneMarker);
     state.selectedMarkerId = snapshot.selectedMarkerId;
     state.continentPieces = snapshot.continentPieces.map(cloneContinentPiece);
@@ -529,6 +703,8 @@
     state.nextMarkerId = snapshot.nextMarkerId;
     state.currentLine = null;
     state.isDrawing = false;
+    state.plateDraft = null;
+    state.wrapSide = null;
     state.markerDrag = null;
     state.continentDraft = [];
     state.continentCursor = null;
@@ -558,8 +734,98 @@
     render();
   }
 
+  function handlePlatePointerDown(event) {
+    if (event.button !== 0) {
+      return;
+    }
+    cancelClearConfirm();
+    if (state.selectedCells.size === 0) {
+      setMessage("Roll points first.");
+      render();
+      return;
+    }
+    const point = getSvgPointInPage(event, false);
+    if (!point) {
+      return;
+    }
+    const hit = findNearestPoint(point.x, point.y, plateHitRadius);
+    if (!hit) {
+      if (state.plateDraft) {
+        clearPlateDraft();
+        setMessage("Chain ended.");
+        render();
+      }
+      return;
+    }
+
+    const hitPoint = buildPlatePoint(hit);
+
+    if (!state.plateDraft) {
+      if (countPlateConnections(hitPoint.key) >= MAX_PLATE_CONNECTIONS) {
+        setMessage(
+          `This point already has ${MAX_PLATE_CONNECTIONS} connections.`
+        );
+        render();
+        return;
+      }
+      state.plateDraft = hitPoint;
+      setMessage("Select another point to connect.");
+      render();
+      return;
+    }
+
+    if (hitPoint.key === state.plateDraft.key) {
+      clearPlateDraft();
+      setMessage("Chain ended.");
+      render();
+      return;
+    }
+
+    if (countPlateConnections(state.plateDraft.key) >= MAX_PLATE_CONNECTIONS) {
+      clearPlateDraft();
+      setMessage(
+        `This point already has ${MAX_PLATE_CONNECTIONS} connections.`
+      );
+      render();
+      return;
+    }
+
+    if (countPlateConnections(hitPoint.key) >= MAX_PLATE_CONNECTIONS) {
+      setMessage(
+        `That point already has ${MAX_PLATE_CONNECTIONS} connections.`
+      );
+      render();
+      return;
+    }
+
+    if (hasPlateConnection(state.plateDraft.key, hitPoint.key)) {
+      setMessage("Points already connected.");
+      render();
+      return;
+    }
+
+    const wrapSide = state.wrapSide;
+    addPlateConnection(state.plateDraft, hitPoint, wrapSide);
+    if (wrapSide) {
+      state.wrapSide = null;
+    }
+    if (countPlateConnections(hitPoint.key) >= MAX_PLATE_CONNECTIONS) {
+      clearPlateDraft();
+      setMessage("Line drawn. This point reached max connections.");
+      render();
+      return;
+    }
+    state.plateDraft = hitPoint;
+    setMessage("Line drawn. Select the next point.");
+    render();
+  }
+
   function handlePointerDown(event) {
-    if (!isLineTool(state.tool) || event.button !== 0) {
+    if (state.tool === "pencil") {
+      handlePlatePointerDown(event);
+      return;
+    }
+    if (state.tool !== "arrow" || event.button !== 0) {
       return;
     }
     cancelClearConfirm();
@@ -567,14 +833,13 @@
     if (!point) {
       return;
     }
-    const lineType = state.tool === "arrow" ? "arrow" : "plate";
     state.isDrawing = true;
     state.currentLine = {
       x1: point.x,
       y1: point.y,
       x2: point.x,
       y2: point.y,
-      lineType,
+      lineType: "arrow",
     };
     if (ui.board.setPointerCapture) {
       ui.board.setPointerCapture(event.pointerId);
@@ -583,14 +848,14 @@
   }
 
   function handlePointerMove(event) {
-    if (!state.isDrawing || !isLineTool(state.tool)) {
+    if (state.tool !== "arrow" || !state.isDrawing) {
       return;
     }
     updateCurrentLine(event);
   }
 
   function handlePointerUp(event) {
-    if (!state.isDrawing) {
+    if (state.tool !== "arrow" || !state.isDrawing) {
       return;
     }
     state.isDrawing = false;
@@ -607,6 +872,12 @@
   function handleContextMenu(event) {
     event.preventDefault();
     cancelClearConfirm();
+    if (state.tool === "pencil" && state.plateDraft) {
+      clearPlateDraft();
+      setMessage("Chain ended.");
+      render();
+      return;
+    }
     if (state.isDrawing) {
       state.isDrawing = false;
       state.currentLine = null;
@@ -615,7 +886,7 @@
     if (!point) {
       return;
     }
-    const removed = removeAtPoint(point.x, point.y);
+    const removed = removeAtPoint(point.x, point.y, { allowPoints: false });
     if (!removed) {
       setMessage("Nothing to delete.");
     }
@@ -862,11 +1133,12 @@
     };
   }
 
-  function removeAtPoint(x, y) {
+  function removeAtPoint(x, y, options = {}) {
+    const { allowPoints = true } = options;
     const pointHit = Math.min(microW, microH) * 0.35;
     const lineHit = Math.min(microW, microH) * 0.35;
     const markerCandidate = findMarkerAt({ x, y });
-    const pointCandidate = findNearestPoint(x, y, pointHit);
+    const pointCandidate = allowPoints ? findNearestPoint(x, y, pointHit) : null;
     const lineCandidate = findNearestLine(x, y, lineHit);
 
     if (markerCandidate) {
@@ -874,22 +1146,13 @@
       return true;
     }
 
-    if (pointCandidate && lineCandidate) {
-      if (pointCandidate.distance <= lineCandidate.distance) {
-        removePoint(pointCandidate.key, pointCandidate.col, pointCandidate.row);
-        return true;
-      }
+    if (lineCandidate) {
       removeLine(lineCandidate.index);
       return true;
     }
 
     if (pointCandidate) {
       removePoint(pointCandidate.key, pointCandidate.col, pointCandidate.row);
-      return true;
-    }
-
-    if (lineCandidate) {
-      removeLine(lineCandidate.index);
       return true;
     }
 
@@ -932,7 +1195,14 @@
     let best = null;
     const radiusSq = radius * radius;
     state.lines.forEach((line, index) => {
-      const distSq = distanceToSegmentSquared(x, y, line);
+      const segments = getLineSegments(line);
+      let distSq = Infinity;
+      segments.forEach((segment) => {
+        const candidate = distanceToSegmentSquared(x, y, segment);
+        if (candidate < distSq) {
+          distSq = candidate;
+        }
+      });
       if (distSq <= radiusSq) {
         if (!best || distSq < best.distanceSq) {
           best = { index, distanceSq: distSq };
@@ -968,16 +1238,13 @@
 
   function removePoint(key, microCol, microRow) {
     state.selectedCells.delete(key);
-    const sectorCol = Math.floor(microCol / SUBGRID_SIZE);
-    const sectorRow = Math.floor(microRow / SUBGRID_SIZE);
-    const cellCol = (microCol % SUBGRID_SIZE) + 1;
-    const cellRow = (microRow % SUBGRID_SIZE) + 1;
+    const col = microCol + 1;
+    const row = microRow + 1;
     recordHistory({
       type: "erase",
       itemType: "point",
       key,
-      sector: { col: sectorCol, row: sectorRow },
-      cell: { col: cellCol, row: cellRow },
+      roll: { col, row },
     });
     syncLastPoint();
     setMessage("Point deleted.");
@@ -1166,18 +1433,34 @@
     return state.markers.find((marker) => marker.id === id);
   }
 
-  function addCell(microCol, microRow, sectorCol, sectorRow, cellCol, cellRow) {
+  function addCell(microCol, microRow, col, row) {
     const key = `${microCol},${microRow}`;
     if (state.selectedCells.has(key)) {
       return false;
     }
     state.selectedCells.add(key);
-    const sector = { col: sectorCol, row: sectorRow };
-    const cell = { col: cellCol, row: cellRow };
-    recordHistory({ type: "point", key, sector, cell });
-    state.lastSector = sector;
-    state.lastCell = cell;
+    const roll = { col, row };
+    recordHistory({ type: "point", key, roll });
+    state.lastRoll = roll;
     return true;
+  }
+
+  function toggleCornerPoint(col, row) {
+    cancelClearConfirm();
+    const microCol = col - 1;
+    const microRow = row - 1;
+    const key = `${microCol},${microRow}`;
+    if (state.selectedCells.has(key)) {
+      if (state.plateDraft && state.plateDraft.key === key) {
+        clearPlateDraft();
+      }
+      removePoint(key, microCol, microRow);
+      setMessage(`Corner (${col}, ${row}) removed.`);
+    } else {
+      addCell(microCol, microRow, col, row);
+      setMessage(`Corner (${col}, ${row}) added.`);
+    }
+    render();
   }
 
   function undoLast() {
@@ -1335,6 +1618,13 @@
       if (entry.selectedMarkerId) {
         state.selectedMarkerId = entry.selectedMarkerId;
       }
+      return;
+    }
+    if (entry.itemType === "continents") {
+      restoreContinents(entry.items);
+      if (entry.selectedContinentId) {
+        state.selectedContinentId = entry.selectedContinentId;
+      }
     }
   }
 
@@ -1349,6 +1639,10 @@
     }
     if (entry.itemType === "markers") {
       removeMarkers(entry.items);
+      return;
+    }
+    if (entry.itemType === "continents") {
+      removeContinents(entry.items);
     }
   }
 
@@ -1395,7 +1689,8 @@
       Math.abs(a.y1 - b.y1) <= epsilon &&
       Math.abs(a.x2 - b.x2) <= epsilon &&
       Math.abs(a.y2 - b.y2) <= epsilon &&
-      (a.lineType || "plate") === (b.lineType || "plate")
+      (a.lineType || "plate") === (b.lineType || "plate") &&
+      (a.wrapSide || null) === (b.wrapSide || null)
     );
   }
 
@@ -1413,6 +1708,27 @@
     if (state.markerDrag && ids.has(state.markerDrag.id)) {
       state.markerDrag = null;
     }
+  }
+
+  function restoreContinents(items) {
+    const sorted = [...items].sort((a, b) => a.index - b.index);
+    sorted.forEach((item) => insertContinentAt(item.index, item.piece));
+  }
+
+  function removeContinents(items) {
+    const ids = new Set(items.map((item) => item.piece.id));
+    state.continentPieces = state.continentPieces.filter(
+      (piece) => !ids.has(piece.id)
+    );
+    if (state.selectedContinentId && ids.has(state.selectedContinentId)) {
+      state.selectedContinentId = null;
+    }
+    if (state.continentDrag && ids.has(state.continentDrag.id)) {
+      state.continentDrag = null;
+    }
+    state.continentHoverNode = null;
+    state.continentDraft = [];
+    state.continentCursor = null;
   }
 
   function insertMarkerAt(index, marker) {
@@ -1484,13 +1800,11 @@
     for (let i = state.history.length - 1; i >= 0; i -= 1) {
       const entry = state.history[i];
       if (entry.type === "point" && state.selectedCells.has(entry.key)) {
-        state.lastSector = entry.sector;
-        state.lastCell = entry.cell;
+        state.lastRoll = entry.roll;
         return;
       }
     }
-    state.lastSector = null;
-    state.lastCell = null;
+    state.lastRoll = null;
   }
 
   function clamp(value, min, max) {
@@ -1535,8 +1849,8 @@
     } else {
       ui.toolMode.textContent = "Roll";
     }
-    ui.lastSector.textContent = formatLastSector();
-    ui.lastCell.textContent = formatLastCell();
+    ui.lastSector.textContent = formatLastX();
+    ui.lastCell.textContent = formatLastY();
     ui.filled.textContent = state.selectedCells.size;
     const markerCounts = countMarkersByType();
     const arrowCount = state.lines.filter(
@@ -1545,7 +1859,7 @@
     ui.rollBtn.disabled = state.selectedCells.size >= TOTAL_CELLS;
     ui.rollSixBtn.disabled = state.selectedCells.size >= TOTAL_CELLS;
     ui.clearBtn.disabled = !hasMarks();
-    ui.clearBtn.textContent = state.clearConfirm ? "Confirm clear" : "Clear all";
+    ui.clearBtn.textContent = state.clearConfirm ? "Confirm restart" : "Restart";
     ui.undoBtn.disabled = state.history.length === 0;
     ui.redoBtn.disabled = state.future.length === 0;
     ui.clearPointsBtn.disabled = state.selectedCells.size === 0;
@@ -1553,6 +1867,8 @@
     ui.clearCrustBtn.disabled = (markerCounts.crust || 0) === 0;
     ui.clearDirectionsBtn.disabled = (markerCounts.direction || 0) === 0;
     ui.clearPlatesBtn.disabled = (markerCounts["plate-id"] || 0) === 0;
+    ui.clearContinentsBtn.disabled =
+      state.continentPieces.length === 0 && state.continentDraft.length === 0;
     ui.clearVolcanoesBtn.disabled = (markerCounts.volcano || 0) === 0;
     ui.pencilBtn.setAttribute("aria-pressed", state.tool === "pencil");
     ui.pencilBtn.classList.toggle("active", state.tool === "pencil");
@@ -1568,6 +1884,28 @@
     ui.continentBtn.classList.toggle("active", state.tool === "continent");
     ui.volcanoBtn.setAttribute("aria-pressed", state.tool === "volcano");
     ui.volcanoBtn.classList.toggle("active", state.tool === "volcano");
+    const wrapEnabled = state.tool === "pencil";
+    if (ui.wrapLeftBtn) {
+      ui.wrapLeftBtn.disabled = !wrapEnabled;
+      ui.wrapLeftBtn.setAttribute("aria-pressed", state.wrapSide === "left");
+      ui.wrapLeftBtn.classList.toggle("active", state.wrapSide === "left");
+    }
+    if (ui.wrapRightBtn) {
+      ui.wrapRightBtn.disabled = !wrapEnabled;
+      ui.wrapRightBtn.setAttribute("aria-pressed", state.wrapSide === "right");
+      ui.wrapRightBtn.classList.toggle("active", state.wrapSide === "right");
+    }
+    if (ui.cornerButtons) {
+      ui.cornerButtons.forEach((corner) => {
+        if (!corner.el) {
+          return;
+        }
+        const key = `${corner.col - 1},${corner.row - 1}`;
+        const isActive = state.selectedCells.has(key);
+        corner.el.setAttribute("aria-pressed", isActive);
+        corner.el.classList.toggle("active", isActive);
+      });
+    }
     ui.deleteContinentBtn.disabled = !state.selectedContinentId;
     ui.board.classList.toggle("pencil-active", isLineTool(state.tool));
     document.body.dataset.tool = state.tool;
@@ -1577,20 +1915,21 @@
     if (ui.markerLayer && !state.markerDrag) {
       ui.markerLayer.style.cursor = isMarkerTool(state.tool) ? "crosshair" : "default";
     }
+    scheduleEdgeControlsLayout();
   }
 
-  function formatLastSector() {
-    if (!state.lastSector) {
+  function formatLastX() {
+    if (!state.lastRoll) {
       return "-";
     }
-    return `${groupLabel(state.lastSector.col)} x ${groupLabel(state.lastSector.row)}`;
+    return String(state.lastRoll.col);
   }
 
-  function formatLastCell() {
-    if (!state.lastCell) {
+  function formatLastY() {
+    if (!state.lastRoll) {
       return "-";
     }
-    return `${state.lastCell.col}, ${state.lastCell.row}`;
+    return String(state.lastRoll.row);
   }
 
   function buildSvg() {
@@ -1603,35 +1942,18 @@
       `<defs><marker id="arrow-head" markerUnits="userSpaceOnUse" markerWidth="${arrowSizeText}" markerHeight="${arrowSizeText}" viewBox="0 0 ${arrowSizeText} ${arrowSizeText}" refX="${arrowSizeText}" refY="${arrowHalfText}" orient="auto"><path d="M 0 0 L ${arrowSizeText} ${arrowHalfText} L 0 ${arrowSizeText} z" fill="var(--ink)" /></marker></defs>`
     );
 
-    for (let i = 1; i < MICRO_COUNT; i += 1) {
-      if (i % MICRO_PER_BIG === 0) {
-        continue;
-      }
-      const x = innerLeft + i * microW;
-      parts.push(
-        `<line class="grid-line" x1="${x.toFixed(2)}" y1="${innerTop.toFixed(
-          2
-        )}" x2="${x.toFixed(2)}" y2="${innerBottom.toFixed(2)}" />`
-      );
-    }
-
-    for (let i = 1; i < MICRO_COUNT; i += 1) {
-      if (i % MICRO_PER_BIG === 0) {
-        continue;
-      }
-      const y = innerTop + i * microH;
-      parts.push(
-        `<line class="grid-line" x1="${innerLeft.toFixed(2)}" y1="${y.toFixed(
-          2
-        )}" x2="${innerRight.toFixed(2)}" y2="${y.toFixed(2)}" />`
-      );
-    }
-
-    for (let i = 0; i <= GRID; i += 1) {
+    for (let i = 1; i < GRID; i += 1) {
       const x = (cellW * i).toFixed(2);
+      parts.push(
+        `<line class="grid-line" x1="${x}" y1="0" x2="${x}" y2="${HEIGHT}" />`
+      );
+    }
+
+    for (let i = 1; i < GRID; i += 1) {
       const y = (cellH * i).toFixed(2);
-      parts.push(`<line class="grid-line-strong" x1="${x}" y1="0" x2="${x}" y2="${HEIGHT}" />`);
-      parts.push(`<line class="grid-line-strong" x1="0" y1="${y}" x2="${WIDTH}" y2="${y}" />`);
+      parts.push(
+        `<line class="grid-line" x1="0" y1="${y}" x2="${WIDTH}" y2="${y}" />`
+      );
     }
 
     parts.push(
@@ -1642,13 +1964,16 @@
       const lineType = line.lineType || "plate";
       const lineClass = lineType === "arrow" ? "arrow-line" : "pencil-line";
       const markerEnd = lineType === "arrow" ? ' marker-end="url(#arrow-head)"' : "";
-      parts.push(
-        `<line class="${lineClass}"${markerEnd} x1="${line.x1.toFixed(
-          2
-        )}" y1="${line.y1.toFixed(2)}" x2="${line.x2.toFixed(2)}" y2="${line.y2.toFixed(
-          2
-        )}" />`
-      );
+      const segments = getLineSegments(line);
+      segments.forEach((segment) => {
+        parts.push(
+          `<line class="${lineClass}"${markerEnd} x1="${segment.x1.toFixed(
+            2
+          )}" y1="${segment.y1.toFixed(2)}" x2="${segment.x2.toFixed(
+            2
+          )}" y2="${segment.y2.toFixed(2)}" />`
+        );
+      });
     });
 
     if (state.currentLine) {
@@ -1674,6 +1999,17 @@
         )}" r="${dotRadius.toFixed(2)}" />`
       );
     });
+
+    if (state.plateDraft) {
+      const ringRadius = dotRadius * 3.2;
+      parts.push(
+        `<circle class="plate-node-active" cx="${state.plateDraft.x.toFixed(
+          2
+        )}" cy="${state.plateDraft.y.toFixed(2)}" r="${ringRadius.toFixed(
+          2
+        )}" />`
+      );
+    }
 
     return parts.join("");
   }
@@ -1708,8 +2044,68 @@
   }
 
   function handleResize() {
+    updateHeaderOffset();
     updateOverlayCanvasSize();
     drawContinents();
+    scheduleEdgeControlsLayout();
+  }
+
+  function updateHeaderOffset() {
+    if (!ui.header) {
+      return;
+    }
+    const rect = ui.header.getBoundingClientRect();
+    const offset = Math.max(0, rect.top + window.scrollY);
+    document.documentElement.style.setProperty(
+      "--header-offset",
+      `${Math.round(offset)}px`
+    );
+  }
+
+  function scheduleEdgeControlsLayout() {
+    if (!ui.boardStack || !ui.edgeControls) {
+      return;
+    }
+    if (edgeLayoutFrame) {
+      return;
+    }
+    edgeLayoutFrame = window.requestAnimationFrame(() => {
+      edgeLayoutFrame = null;
+      updateEdgeControlsLayout();
+    });
+  }
+
+  function updateEdgeControlsLayout() {
+    if (!ui.boardStack || !ui.edgeControls) {
+      return;
+    }
+    const rect = ui.boardStack.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      return;
+    }
+    const left = Math.round(rect.left + window.scrollX);
+    const top = Math.round(rect.top + window.scrollY);
+    const width = Math.round(rect.width);
+    const height = Math.round(rect.height);
+    if (
+      lastEdgeLayout &&
+      lastEdgeLayout.left === left &&
+      lastEdgeLayout.top === top &&
+      lastEdgeLayout.width === width &&
+      lastEdgeLayout.height === height
+    ) {
+      return;
+    }
+    lastEdgeLayout = {
+      left,
+      top,
+      width,
+      height,
+    };
+    document.documentElement.style.setProperty("--board-left", `${left}px`);
+    document.documentElement.style.setProperty("--board-top", `${top}px`);
+    document.documentElement.style.setProperty("--board-width", `${width}px`);
+    document.documentElement.style.setProperty("--board-height", `${height}px`);
   }
 
   function updateOverlayCanvasSize() {
@@ -1756,18 +2152,27 @@
       return;
     }
 
+    if (event.button === 2 && state.continentDraft.length > 0) {
+      state.continentDraft = [];
+      state.continentCursor = null;
+      setMessage("Continent draft cancelled.");
+      render();
+      return;
+    }
+
     if (event.button === 2) {
       const hit = findContinentAt(point);
       if (!hit) {
         return;
       }
-      selectContinent(hit.id);
+      selectContinent(hit.piece.id);
       state.continentDrag = {
         type: "rotate",
-        id: hit.id,
+        id: hit.piece.id,
+        shiftX: hit.shiftX,
         startAngle: Math.atan2(point.y - hit.y, point.x - hit.x),
-        startRotation: hit.rotation,
-        before: cloneContinentPiece(hit),
+        startRotation: hit.piece.rotation,
+        before: cloneContinentPiece(hit.piece),
       };
       if (ui.continentCanvas.setPointerCapture) {
         ui.continentCanvas.setPointerCapture(event.pointerId);
@@ -1801,6 +2206,7 @@
         index: nodeHit.index,
         offsetX: nodeHit.offsetX,
         offsetY: nodeHit.offsetY,
+        shiftX: nodeHit.shiftX,
         before: cloneContinentPiece(nodeHit.piece),
       };
       if (ui.continentCanvas.setPointerCapture) {
@@ -1813,13 +2219,14 @@
 
     const hit = findContinentAt(point);
     if (hit) {
-      selectContinent(hit.id);
+      selectContinent(hit.piece.id);
       state.continentDrag = {
         type: "move",
-        id: hit.id,
+        id: hit.piece.id,
+        shiftX: hit.shiftX,
         offsetX: point.x - hit.x,
         offsetY: point.y - hit.y,
-        before: cloneContinentPiece(hit),
+        before: cloneContinentPiece(hit.piece),
       };
       if (ui.continentCanvas.setPointerCapture) {
         ui.continentCanvas.setPointerCapture(event.pointerId);
@@ -1855,15 +2262,22 @@
         piece.x = point.x - state.continentDrag.offsetX;
         piece.y = point.y - state.continentDrag.offsetY;
       } else if (state.continentDrag.type === "node") {
-        const local = toLocalPoint(point, piece);
+        const local = toLocalPoint(
+          point,
+          piece,
+          state.continentDrag.shiftX || 0
+        );
         piece.points[state.continentDrag.index] = [
           local[0] + state.continentDrag.offsetX,
           local[1] + state.continentDrag.offsetY,
         ];
         updateContinentRadius(piece);
       } else if (state.continentDrag.type === "rotate") {
-        const angle = Math.atan2(point.y - piece.y, point.x - piece.x);
-        piece.rotation = state.continentDrag.startRotation + (angle - state.continentDrag.startAngle);
+        const centerX = piece.x + (state.continentDrag.shiftX || 0);
+        const angle = Math.atan2(point.y - piece.y, point.x - centerX);
+        piece.rotation =
+          state.continentDrag.startRotation +
+          (angle - state.continentDrag.startAngle);
       }
       render();
       return;
@@ -1939,7 +2353,7 @@
     state.continentCursor = point;
     state.selectedContinentId = null;
     state.continentHoverNode = null;
-    setMessage("Click points, then click the first point again to close.");
+    setMessage("Click points, then click the first point again to close. Right click cancels.");
   }
 
   function finalizeContinentDraft() {
@@ -2132,17 +2546,36 @@
     piece.radius = radius;
   }
 
+  function getWrappedCenters(piece) {
+    return [
+      { x: piece.x, y: piece.y, shiftX: 0 },
+      { x: piece.x - WIDTH, y: piece.y, shiftX: -WIDTH },
+      { x: piece.x + WIDTH, y: piece.y, shiftX: WIDTH },
+    ];
+  }
+
+  function getVisibleWrappedCenters(piece) {
+    const radius = piece.radius || 0;
+    return getWrappedCenters(piece).filter(
+      (center) => center.x + radius >= 0 && center.x - radius <= WIDTH
+    );
+  }
+
   function findContinentAt(point) {
     for (let i = state.continentPieces.length - 1; i >= 0; i -= 1) {
       const piece = state.continentPieces[i];
-      const dx = point.x - piece.x;
-      const dy = point.y - piece.y;
-      if (piece.radius && dx * dx + dy * dy > piece.radius * piece.radius) {
-        continue;
-      }
-      const localPoint = toLocalPoint(point, piece);
-      if (pointInPolygon(localPoint, piece.points)) {
-        return piece;
+      const centers = getVisibleWrappedCenters(piece);
+      for (let j = 0; j < centers.length; j += 1) {
+        const center = centers[j];
+        const dx = point.x - center.x;
+        const dy = point.y - center.y;
+        if (piece.radius && dx * dx + dy * dy > piece.radius * piece.radius) {
+          continue;
+        }
+        const localPoint = toLocalPoint(point, piece, center.shiftX);
+        if (pointInPolygon(localPoint, piece.points)) {
+          return { piece, x: center.x, y: center.y, shiftX: center.shiftX };
+        }
       }
     }
     return null;
@@ -2156,18 +2589,23 @@
     if (!piece) {
       return null;
     }
-    for (let j = 0; j < piece.points.length; j += 1) {
-      const world = toWorldPoint(piece, piece.points[j]);
-      const dx = point.x - world.x;
-      const dy = point.y - world.y;
-      if (dx * dx + dy * dy <= nodeHitRadius * nodeHitRadius) {
-        const local = toLocalPoint(point, piece);
-        return {
-          piece,
-          index: j,
-          offsetX: piece.points[j][0] - local[0],
-          offsetY: piece.points[j][1] - local[1],
-        };
+    const centers = getVisibleWrappedCenters(piece);
+    for (let i = 0; i < centers.length; i += 1) {
+      const center = centers[i];
+      for (let j = 0; j < piece.points.length; j += 1) {
+        const world = toWorldPoint(piece, piece.points[j], center.shiftX);
+        const dx = point.x - world.x;
+        const dy = point.y - world.y;
+        if (dx * dx + dy * dy <= nodeHitRadius * nodeHitRadius) {
+          const local = toLocalPoint(point, piece, center.shiftX);
+          return {
+            piece,
+            index: j,
+            offsetX: piece.points[j][0] - local[0],
+            offsetY: piece.points[j][1] - local[1],
+            shiftX: center.shiftX,
+          };
+        }
       }
     }
     return null;
@@ -2192,19 +2630,19 @@
     return false;
   }
 
-  function toLocalPoint(point, piece) {
-    const dx = point.x - piece.x;
+  function toLocalPoint(point, piece, shiftX = 0) {
+    const dx = point.x - (piece.x + shiftX);
     const dy = point.y - piece.y;
     const sin = Math.sin(-piece.rotation);
     const cos = Math.cos(-piece.rotation);
     return [dx * cos - dy * sin, dx * sin + dy * cos];
   }
 
-  function toWorldPoint(piece, local) {
+  function toWorldPoint(piece, local, shiftX = 0) {
     const cos = Math.cos(piece.rotation);
     const sin = Math.sin(piece.rotation);
     return {
-      x: piece.x + local[0] * cos - local[1] * sin,
+      x: piece.x + shiftX + local[0] * cos - local[1] * sin,
       y: piece.y + local[0] * sin + local[1] * cos,
     };
   }
@@ -2252,37 +2690,43 @@
   }
 
   function drawContinentPiece(context, piece, strokeStyle, isSelected) {
-    context.save();
-    context.translate(piece.x, piece.y);
-    context.rotate(piece.rotation);
-    traceContinentPath(context, piece.points);
-    context.fillStyle = continentFill;
-    context.fill();
-    context.lineWidth = isSelected ? 1.2 : 0.8;
-    context.strokeStyle = strokeStyle;
-    context.stroke();
-    context.restore();
+    const centers = getVisibleWrappedCenters(piece);
+    centers.forEach((center) => {
+      context.save();
+      context.translate(center.x, center.y);
+      context.rotate(piece.rotation);
+      traceContinentPath(context, piece.points);
+      context.fillStyle = continentFill;
+      context.fill();
+      context.lineWidth = isSelected ? 1.2 : 0.8;
+      context.strokeStyle = strokeStyle;
+      context.stroke();
+      context.restore();
+    });
   }
 
   function drawContinentNodes(context, piece) {
-    context.save();
-    context.translate(piece.x, piece.y);
-    context.rotate(piece.rotation);
-    for (let i = 0; i < piece.points.length; i += 1) {
-      const point = piece.points[i];
-      const isHot =
-        state.continentHoverNode &&
-        state.continentHoverNode.id === piece.id &&
-        state.continentHoverNode.index === i;
-      context.beginPath();
-      context.arc(point[0], point[1], nodeRadius, 0, Math.PI * 2);
-      context.fillStyle = isHot ? draftPointActive : draftPoint;
-      context.fill();
-      context.lineWidth = 0.8;
-      context.strokeStyle = isHot ? continentStrokeActive : continentStroke;
-      context.stroke();
-    }
-    context.restore();
+    const centers = getVisibleWrappedCenters(piece);
+    centers.forEach((center) => {
+      context.save();
+      context.translate(center.x, center.y);
+      context.rotate(piece.rotation);
+      for (let i = 0; i < piece.points.length; i += 1) {
+        const point = piece.points[i];
+        const isHot =
+          state.continentHoverNode &&
+          state.continentHoverNode.id === piece.id &&
+          state.continentHoverNode.index === i;
+        context.beginPath();
+        context.arc(point[0], point[1], nodeRadius, 0, Math.PI * 2);
+        context.fillStyle = isHot ? draftPointActive : draftPoint;
+        context.fill();
+        context.lineWidth = 0.8;
+        context.strokeStyle = isHot ? continentStrokeActive : continentStroke;
+        context.stroke();
+      }
+      context.restore();
+    });
   }
 
   function drawContinentDraft(context) {
@@ -2333,7 +2777,8 @@
     }
     if (state.tool === "continent") {
       if (state.continentDraft.length > 0) {
-        ui.continentHint.textContent = "Click the first node again to close.";
+        ui.continentHint.textContent =
+          "Click the first node again to close. Right click cancels.";
         return;
       }
       if (state.selectedContinentId) {
@@ -2366,7 +2811,7 @@
     }
     if (state.tool === "pencil") {
       ui.continentHint.textContent =
-        "Click and drag to draw plate boundaries.";
+        "Click points to connect in a chain. Use the side turn-around buttons to wrap the next link. Right click or click empty space to stop. Max 3 connections per point.";
       return;
     }
     if (state.tool === "arrow") {

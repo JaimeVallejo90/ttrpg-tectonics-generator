@@ -26,7 +26,7 @@
         <div class="header-card">
           <div class="card-title">Quick tips</div>
           <ul class="tip-list">
-            <li>Right click deletes points, lines, or markers.</li>
+            <li>Right click deletes lines or markers (or ends a plate chain).</li>
             <li>Delete removes the selected marker or continent.</li>
             <li>Drag continents to move, right-drag to rotate.</li>
           </ul>
@@ -41,7 +41,7 @@
               <span class="step-number">1</span>
               <div class="step-body">
                 <div class="step-label">Roll points</div>
-                <div class="step-note">Seed the grid with 2d6+2d6.</div>
+                <div class="step-note">Seed the grid with 2d20.</div>
               </div>
             </li>
             <li>
@@ -121,14 +121,14 @@
               </div>
               <div class="status-item">
                 <span class="status-label">Filled</span>
-                <span class="status-value"><span id="filled-count">0</span>/324</span>
+                <span class="status-value"><span id="filled-count">0</span>/400</span>
               </div>
               <div class="status-item">
-                <span class="status-label">Last sector</span>
+                <span class="status-label">Last X</span>
                 <span id="last-sector" class="status-value">-</span>
               </div>
               <div class="status-item">
-                <span class="status-label">Last cell</span>
+                <span class="status-label">Last Y</span>
                 <span id="last-cell" class="status-value">-</span>
               </div>
             </div>
@@ -139,21 +139,23 @@
           </div>
 
           <section class="board-wrap">
-            <div class="board-stack">
-              <svg id="board" role="img" aria-label="A4 grid"></svg>
-              <canvas
-                id="continent-canvas"
-                class="board-overlay"
-                width="297"
-                height="210"
-                aria-label="A4 continent overlay"
-              ></canvas>
-              <svg
-                id="marker-layer"
-                class="marker-overlay"
-                role="img"
-                aria-label="A4 markers overlay"
-              ></svg>
+            <div class="board-shell">
+              <div class="board-stack">
+                <svg id="board" role="img" aria-label="A4 grid"></svg>
+                <canvas
+                  id="continent-canvas"
+                  class="board-overlay"
+                  width="297"
+                  height="210"
+                  aria-label="A4 continent overlay"
+                ></canvas>
+                <svg
+                  id="marker-layer"
+                  class="marker-overlay"
+                  role="img"
+                  aria-label="A4 markers overlay"
+                ></svg>
+              </div>
             </div>
           </section>
         </section>
@@ -169,10 +171,13 @@
           <div class="panel-block">
             <div class="panel-title">Step 1: Roll points</div>
             <div class="button-stack">
-              <button id="roll-btn" class="primary">Roll a point (2d6+2d6)</button>
+              <button id="roll-btn" class="primary">Roll a point (2d20)</button>
               <button id="roll-6-btn" class="secondary">Roll 6 points</button>
             </div>
-            <div class="panel-hint">Rolls add seed points to the A4 grid.</div>
+            <div class="panel-hint">
+              Rolls add seed points to the A4 grid. Corner buttons toggle the four
+              corner points.
+            </div>
           </div>
 
           <div class="panel-block">
@@ -187,7 +192,8 @@
               <button id="volcano-btn" class="secondary" aria-pressed="false">Add volcanoes</button>
             </div>
             <div class="panel-hint">
-              Left click places or drags. Right click deletes. Delete removes selected.
+              Left click places or drags. Right click deletes lines or markers. Delete
+              removes selected. Use the side turn-around buttons to wrap a plate link.
             </div>
           </div>
 
@@ -199,6 +205,7 @@
               <button id="clear-crust-btn" class="ghost">Clear crust</button>
               <button id="clear-directions-btn" class="ghost">Clear directions</button>
               <button id="clear-plates-btn" class="ghost">Clear plate numbers</button>
+              <button id="clear-continents-btn" class="ghost">Clear continents</button>
               <button id="clear-volcanoes-btn" class="ghost">Clear volcanoes</button>
             </div>
           </div>
@@ -207,11 +214,67 @@
             <div class="panel-title">Danger zone</div>
             <div class="button-stack">
               <button id="delete-continent-btn" class="ghost">Delete continent</button>
-              <button id="clear-btn" class="danger">Clear all</button>
+              <button id="clear-btn" class="danger">Restart</button>
             </div>
           </div>
         </aside>
       </main>
+    </div>
+    <div id="edge-controls" class="edge-controls" aria-label="Board edge controls">
+      <div class="edge-controls-side edge-controls-left">
+        <button
+          id="corner-tl-btn"
+          class="corner-btn"
+          type="button"
+          aria-pressed="false"
+        >
+          1,1
+        </button>
+        <button
+          id="wrap-left-btn"
+          class="wrap-button secondary"
+          type="button"
+          aria-pressed="false"
+          aria-label="Click to turn around on the left"
+        >
+          Click to turn around
+        </button>
+        <button
+          id="corner-bl-btn"
+          class="corner-btn"
+          type="button"
+          aria-pressed="false"
+        >
+          1,20
+        </button>
+      </div>
+      <div class="edge-controls-side edge-controls-right">
+        <button
+          id="corner-tr-btn"
+          class="corner-btn"
+          type="button"
+          aria-pressed="false"
+        >
+          20,1
+        </button>
+        <button
+          id="wrap-right-btn"
+          class="wrap-button secondary"
+          type="button"
+          aria-pressed="false"
+          aria-label="Click to turn around on the right"
+        >
+          Click to turn around
+        </button>
+        <button
+          id="corner-br-btn"
+          class="corner-btn"
+          type="button"
+          aria-pressed="false"
+        >
+          20,20
+        </button>
+      </div>
     </div>
 
     <script src="app.js"></script>
