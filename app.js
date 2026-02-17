@@ -67,7 +67,7 @@
     transform: "transform",
     oblique: "oblique",
   };
-  const DEFAULT_SURFACE_BRUSH_RADIUS = Math.min(microW, microH) * 1.35;
+  const DEFAULT_SURFACE_BRUSH_RADIUS = 4;
 
   const state = {
     selectedCells: new Set(),
@@ -103,6 +103,10 @@
   let edgeLayoutFrame = null;
   let lastEdgeLayout = null;
   let rightPanelOffsetFrame = null;
+  let overlayRenderFrame = null;
+  let surfacePaintCacheCanvas = null;
+  let surfacePaintCacheCtx = null;
+  let surfacePaintCacheDirty = true;
 
   function init() {
     ui.board = document.getElementById("board");
@@ -381,7 +385,7 @@
   }
 
   function clampSurfaceBrushRadius(value) {
-    return clamp(value, 4, 40);
+    return clamp(value, 1, 15);
   }
 
   function handleSurfaceRadiusInput(event) {
@@ -1005,6 +1009,7 @@
     state.selectedMarkerId = null;
     state.markerDrag = null;
     state.surfacePaintStamps = [];
+    invalidateSurfacePaintCache();
     state.surfacePaintDrag = null;
     state.continentPieces = [];
     state.continentDraft = [];
@@ -1053,6 +1058,7 @@
     state.surfacePaintStamps = snapshot.surfacePaintStamps
       ? snapshot.surfacePaintStamps.map(cloneSurfaceStamp)
       : [];
+    invalidateSurfacePaintCache();
     state.selectedMarkerId = snapshot.selectedMarkerId;
     state.continentPieces = snapshot.continentPieces.map(cloneContinentPiece);
     state.selectedContinentId = snapshot.selectedContinentId;
@@ -1861,6 +1867,55 @@
     };
   }
 
+  function invalidateSurfacePaintCache() {
+    surfacePaintCacheDirty = true;
+  }
+
+  function ensureSurfacePaintCacheContext() {
+    if (!ui.continentCanvas) {
+      return null;
+    }
+    const targetWidth = Math.max(1, ui.continentCanvas.width || WIDTH);
+    const targetHeight = Math.max(1, ui.continentCanvas.height || HEIGHT);
+    if (!surfacePaintCacheCanvas) {
+      surfacePaintCacheCanvas = document.createElement("canvas");
+      surfacePaintCacheCtx = surfacePaintCacheCanvas.getContext("2d");
+      surfacePaintCacheDirty = true;
+    }
+    if (!surfacePaintCacheCtx) {
+      return null;
+    }
+    if (
+      surfacePaintCacheCanvas.width !== targetWidth ||
+      surfacePaintCacheCanvas.height !== targetHeight
+    ) {
+      surfacePaintCacheCanvas.width = targetWidth;
+      surfacePaintCacheCanvas.height = targetHeight;
+      surfacePaintCacheDirty = true;
+    }
+    const scaleX = targetWidth / WIDTH;
+    const scaleY = targetHeight / HEIGHT;
+    surfacePaintCacheCtx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+    surfacePaintCacheCtx.lineJoin = "round";
+    surfacePaintCacheCtx.lineCap = "round";
+    return surfacePaintCacheCtx;
+  }
+
+  function clearSurfacePaintCache() {
+    if (!surfacePaintCacheCanvas || !surfacePaintCacheCtx) {
+      return;
+    }
+    surfacePaintCacheCtx.save();
+    surfacePaintCacheCtx.setTransform(1, 0, 0, 1, 0, 0);
+    surfacePaintCacheCtx.clearRect(
+      0,
+      0,
+      surfacePaintCacheCanvas.width,
+      surfacePaintCacheCanvas.height
+    );
+    surfacePaintCacheCtx.restore();
+  }
+
   function applyMarkerSnapshot(target, snapshot) {
     target.type = snapshot.type;
     target.x = snapshot.x;
@@ -2401,6 +2456,10 @@
   }
 
   function render() {
+    if (overlayRenderFrame) {
+      window.cancelAnimationFrame(overlayRenderFrame);
+      overlayRenderFrame = null;
+    }
     if (state.tool === "pencil") {
       ui.toolMode.textContent = "Paint Boundaries";
     } else if (state.tool === "arrow") {
@@ -2797,6 +2856,16 @@
     scheduleEdgeControlsLayout();
   }
 
+  function scheduleOverlayRender() {
+    if (overlayRenderFrame) {
+      return;
+    }
+    overlayRenderFrame = window.requestAnimationFrame(() => {
+      overlayRenderFrame = null;
+      drawContinents();
+    });
+  }
+
   function updateHeaderOffset() {
     if (!ui.header) {
       return;
@@ -3166,7 +3235,7 @@
     if (ui.continentCanvas) {
       ui.continentCanvas.style.cursor = "crosshair";
     }
-    render();
+    scheduleOverlayRender();
   }
 
   function handleSurfacePaintPointerMove(event) {
@@ -3189,7 +3258,7 @@
       state.surfacePaintDrag.stamps
     );
     state.surfacePaintDrag.lastPoint = point;
-    render();
+    scheduleOverlayRender();
   }
 
   function handleSurfacePaintPointerUp(event) {
@@ -3251,6 +3320,7 @@
       type,
     };
     state.surfacePaintStamps.push(stamp);
+    applySurfaceStampToCache(stamp);
     if (output) {
       output.push(cloneSurfaceStamp(stamp));
     }
@@ -3617,34 +3687,82 @@
     updateContinentHint();
   }
 
+  function drawSingleSurfacePaintStamp(context, stamp) {
+    const fill = surfacePaintColors[stamp.type];
+    const radius = clampSurfaceBrushRadius(stamp.radius || state.surfaceBrushRadius);
+    const left = clamp(stamp.x - radius, 0, WIDTH);
+    const top = clamp(stamp.y - radius, 0, HEIGHT);
+    const right = clamp(stamp.x + radius, 0, WIDTH);
+    const bottom = clamp(stamp.y + radius, 0, HEIGHT);
+
+    context.save();
+    context.beginPath();
+    context.arc(stamp.x, stamp.y, radius, 0, Math.PI * 2);
+    context.clip();
+    context.clearRect(left, top, Math.max(0, right - left), Math.max(0, bottom - top));
+    context.restore();
+
+    if (!fill) {
+      return;
+    }
+    context.save();
+    context.beginPath();
+    context.arc(stamp.x, stamp.y, radius, 0, Math.PI * 2);
+    context.fillStyle = fill;
+    context.fill();
+    context.restore();
+  }
+
+  function rebuildSurfacePaintCache() {
+    const cacheCtx = ensureSurfacePaintCacheContext();
+    if (!cacheCtx) {
+      surfacePaintCacheDirty = true;
+      return false;
+    }
+    clearSurfacePaintCache();
+    state.surfacePaintStamps.forEach((stamp) => {
+      drawSingleSurfacePaintStamp(cacheCtx, stamp);
+    });
+    surfacePaintCacheDirty = false;
+    return true;
+  }
+
+  function applySurfaceStampToCache(stamp) {
+    const cacheCtx = ensureSurfacePaintCacheContext();
+    if (!cacheCtx) {
+      surfacePaintCacheDirty = true;
+      return;
+    }
+    if (surfacePaintCacheDirty) {
+      rebuildSurfacePaintCache();
+      return;
+    }
+    drawSingleSurfacePaintStamp(cacheCtx, stamp);
+  }
+
+  function drawSurfacePaintFromCache(context) {
+    if (context !== ui.continentCtx || !state.surfacePaintStamps.length) {
+      return false;
+    }
+    if (surfacePaintCacheDirty && !rebuildSurfacePaintCache()) {
+      return false;
+    }
+    if (!surfacePaintCacheCanvas) {
+      return false;
+    }
+    context.drawImage(surfacePaintCacheCanvas, 0, 0, WIDTH, HEIGHT);
+    return true;
+  }
+
   function drawSurfacePaint(context) {
     if (!state.surfacePaintStamps.length) {
       return;
     }
+    if (drawSurfacePaintFromCache(context)) {
+      return;
+    }
     state.surfacePaintStamps.forEach((stamp) => {
-      const fill = surfacePaintColors[stamp.type];
-      const radius = clampSurfaceBrushRadius(stamp.radius || state.surfaceBrushRadius);
-      const left = clamp(stamp.x - radius, 0, WIDTH);
-      const top = clamp(stamp.y - radius, 0, HEIGHT);
-      const right = clamp(stamp.x + radius, 0, WIDTH);
-      const bottom = clamp(stamp.y + radius, 0, HEIGHT);
-
-      context.save();
-      context.beginPath();
-      context.arc(stamp.x, stamp.y, radius, 0, Math.PI * 2);
-      context.clip();
-      context.clearRect(left, top, Math.max(0, right - left), Math.max(0, bottom - top));
-      context.restore();
-
-      if (!fill) {
-        return;
-      }
-      context.save();
-      context.beginPath();
-      context.arc(stamp.x, stamp.y, radius, 0, Math.PI * 2);
-      context.fillStyle = fill;
-      context.fill();
-      context.restore();
+      drawSingleSurfacePaintStamp(context, stamp);
     });
   }
 
