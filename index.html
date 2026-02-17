@@ -26,85 +26,14 @@
         <div class="header-card">
           <div class="card-title">Quick tips</div>
           <ul class="tip-list">
-            <li>Right click deletes lines or markers (or ends a plate chain).</li>
-            <li>Delete removes the selected marker or continent.</li>
-            <li>Drag continents to move, right-drag to rotate.</li>
+            <li>In Paint Boundaries, right click deletes in Boundary mode, resets in other modes.</li>
+            <li>Delete removes the selected marker or craton.</li>
+            <li>Drag cratons to move, right-drag to rotate.</li>
           </ul>
         </div>
       </header>
 
       <main class="app-main">
-        <aside class="panel steps-panel">
-          <div class="panel-title">Workflow</div>
-          <ol class="stepper">
-            <li>
-              <span class="step-number">1</span>
-              <div class="step-body">
-                <div class="step-label">Roll points</div>
-                <div class="step-note">Seed the grid with 2d20.</div>
-              </div>
-            </li>
-            <li>
-              <span class="step-number">2</span>
-              <div class="step-body">
-                <div class="step-label">Paint plates</div>
-                <div class="step-note">Draw boundary lines between points.</div>
-              </div>
-            </li>
-            <li>
-              <span class="step-number">3</span>
-              <div class="step-body">
-                <div class="step-label">Identify plates</div>
-                <div class="step-note">Place plate numbers on the grid.</div>
-              </div>
-            </li>
-            <li>
-              <span class="step-number">4</span>
-              <div class="step-body">
-                <div class="step-label">
-                  Roll crust <span class="step-flag">Optional</span>
-                </div>
-                <div class="step-note">Drop oceanic or continental markers.</div>
-              </div>
-            </li>
-            <li>
-              <span class="step-number">5</span>
-              <div class="step-body">
-                <div class="step-label">Paint continents</div>
-                <div class="step-note">Sketch landmasses from nodes.</div>
-              </div>
-            </li>
-            <li>
-              <span class="step-number">6</span>
-              <div class="step-body">
-                <div class="step-label">Roll directions</div>
-                <div class="step-note">Assign movement arrows.</div>
-              </div>
-            </li>
-            <li>
-              <span class="step-number">7</span>
-              <div class="step-body">
-                <div class="step-label">Move continents</div>
-                <div class="step-note">Drag to move, right-drag to rotate.</div>
-              </div>
-            </li>
-            <li>
-              <span class="step-number">8</span>
-              <div class="step-body">
-                <div class="step-label">Paint arrows</div>
-                <div class="step-note">Draw plate motion vectors.</div>
-              </div>
-            </li>
-            <li>
-              <span class="step-number">9</span>
-              <div class="step-body">
-                <div class="step-label">Add volcanoes</div>
-                <div class="step-note">Place volcanic icons.</div>
-              </div>
-            </li>
-          </ol>
-        </aside>
-
         <section class="panel workspace-panel" id="grid-step">
           <div class="workspace-header">
             <div>
@@ -172,28 +101,29 @@
             <div class="panel-title">Step 1: Roll points</div>
             <div class="button-stack">
               <button id="roll-btn" class="primary">Roll a point (2d20)</button>
-              <button id="roll-6-btn" class="secondary">Roll 6 points</button>
+              <button id="roll-6-btn" class="secondary">Roll 30 points</button>
             </div>
             <div class="panel-hint">
               Rolls add seed points to the A4 grid. Corner buttons toggle the four
-              corner points.
+              corner points. Repeated coordinates thicken existing points.
             </div>
           </div>
 
           <div class="panel-block">
             <div class="panel-title">Steps 2-9: Tools</div>
             <div class="button-grid">
-              <button id="pencil-btn" class="secondary" aria-pressed="false">Paint plates</button>
+              <button id="pencil-btn" class="secondary wide-button" aria-pressed="false">Paint Boundaries</button>
               <button id="plate-id-btn" class="secondary" aria-pressed="false">Identify plates</button>
               <button id="crust-btn" class="secondary" aria-pressed="false">Roll crust</button>
-              <button id="continent-btn" class="secondary" aria-pressed="false">Paint continents</button>
+              <button id="continent-btn" class="secondary" aria-pressed="false">Paint Cratons</button>
               <button id="direction-btn" class="secondary" aria-pressed="false">Roll directions</button>
               <button id="arrow-btn" class="secondary" aria-pressed="false">Paint arrows</button>
+              <button id="divide-btn" class="secondary" aria-pressed="false">Paint Divides</button>
               <button id="volcano-btn" class="secondary" aria-pressed="false">Add volcanoes</button>
             </div>
             <div class="panel-hint">
-              Left click places or drags. Right click deletes lines or markers. Delete
-              removes selected. Use the side turn-around buttons to wrap a plate link.
+              In Paint Boundaries, left click lines converts style. Right click deletes in
+              Boundary mode and resets in other boundary modes.
             </div>
           </div>
 
@@ -202,10 +132,11 @@
             <div class="button-grid">
               <button id="clear-points-btn" class="ghost">Clear points</button>
               <button id="clear-arrows-btn" class="ghost">Clear arrows</button>
+              <button id="clear-divides-btn" class="ghost">Clear divides</button>
               <button id="clear-crust-btn" class="ghost">Clear crust</button>
               <button id="clear-directions-btn" class="ghost">Clear directions</button>
               <button id="clear-plates-btn" class="ghost">Clear plate numbers</button>
-              <button id="clear-continents-btn" class="ghost">Clear continents</button>
+              <button id="clear-continents-btn" class="ghost">Clear cratons</button>
               <button id="clear-volcanoes-btn" class="ghost">Clear volcanoes</button>
             </div>
           </div>
@@ -213,8 +144,97 @@
           <div class="panel-block">
             <div class="panel-title">Danger zone</div>
             <div class="button-stack">
-              <button id="delete-continent-btn" class="ghost">Delete continent</button>
+              <button id="delete-continent-btn" class="ghost">Delete craton</button>
               <button id="clear-btn" class="danger">Restart</button>
+            </div>
+          </div>
+        </aside>
+
+        <aside id="plate-mode-panel" class="panel plate-mode-panel" hidden>
+          <div class="panel-title">Paint Boundaries</div>
+          <div class="panel-block">
+            <div class="panel-title">Boundary Style</div>
+            <div class="button-stack">
+              <button
+                id="plate-boundary-btn"
+                class="secondary"
+                aria-pressed="true"
+              >
+                Boundary
+              </button>
+              <button
+                id="plate-divergent-btn"
+                class="secondary"
+                aria-pressed="false"
+              >
+                Divergent
+              </button>
+              <button
+                id="plate-convergent-btn"
+                class="secondary"
+                aria-pressed="false"
+              >
+                Convergent
+              </button>
+              <button
+                id="plate-transform-btn"
+                class="secondary"
+                aria-pressed="false"
+              >
+                Transform
+              </button>
+              <button
+                id="plate-oblique-btn"
+                class="secondary"
+                aria-pressed="false"
+              >
+                Oblique
+              </button>
+            </div>
+            <div class="panel-hint" id="plate-mode-hint">
+              Boundary is the default mode.
+            </div>
+          </div>
+        </aside>
+
+        <aside id="surface-paint-panel" class="panel surface-paint-panel">
+          <div class="panel-title">Surface Paint</div>
+          <div class="panel-block">
+            <div class="panel-title">Tools</div>
+            <div class="button-stack">
+              <button
+                id="paint-continent-btn"
+                class="secondary"
+                aria-pressed="false"
+              >
+                Paint Continents
+              </button>
+              <button
+                id="paint-ocean-btn"
+                class="secondary"
+                aria-pressed="false"
+              >
+                Paint Oceans
+              </button>
+            </div>
+          </div>
+          <div class="panel-block">
+            <div class="panel-title">Brush Radius</div>
+            <div class="slider-stack">
+              <input
+                id="surface-radius-slider"
+                type="range"
+                min="4"
+                max="40"
+                step="1"
+                value="14"
+              />
+              <div class="slider-value">
+                Radius: <span id="surface-radius-value">14</span>
+              </div>
+            </div>
+            <div class="panel-hint">
+              Left click paints. Right click is an eraser brush.
             </div>
           </div>
         </aside>
@@ -280,3 +300,4 @@
     <script src="app.js"></script>
   </body>
 </html>
+

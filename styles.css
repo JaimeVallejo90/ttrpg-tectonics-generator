@@ -25,8 +25,9 @@
   --side-control-width: 2rem;
   --side-control-gap: 2rem;
   --header-offset: 0px;
-  --left-panel-width: 240px;
-  --right-panel-width: 340px;
+  --right-secondary-offset: 0px;
+  --left-panel-width: 340px;
+  --right-panel-width: 280px;
   --board-left: 0px;
   --board-top: 0px;
   --board-width: 0px;
@@ -167,27 +168,41 @@ body {
   color: var(--ink-muted);
 }
 
-.steps-panel,
-.control-panel {
+.control-panel,
+.plate-mode-panel,
+.surface-paint-panel {
   position: fixed;
-  top: var(--header-offset);
-  max-height: calc(100vh - var(--header-offset));
   overflow: auto;
   z-index: 6;
 }
 
-.steps-panel {
+.control-panel {
+  top: var(--header-offset);
+  max-height: calc(100vh - var(--header-offset));
   left: calc(
     (100vw - var(--page-width)) / 2 - var(--left-panel-width) - 1.2rem
   );
   width: var(--left-panel-width);
 }
 
-.control-panel {
+.plate-mode-panel,
+.surface-paint-panel {
   right: calc(
     (100vw - var(--page-width)) / 2 - var(--right-panel-width) - 1.2rem
   );
   width: var(--right-panel-width);
+}
+
+.plate-mode-panel {
+  top: var(--header-offset);
+  max-height: calc(100vh - var(--header-offset));
+}
+
+.surface-paint-panel {
+  top: calc(var(--header-offset) + var(--right-secondary-offset));
+  max-height: calc(
+    100vh - var(--header-offset) - var(--right-secondary-offset)
+  );
 }
 
 .workspace-panel {
@@ -372,8 +387,30 @@ body {
   gap: 0.6rem;
 }
 
+.slider-stack {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.slider-stack input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.slider-value {
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+}
+
 .button-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.button-grid .wide-button {
+  grid-column: 1 / -1;
+  padding-top: 0.9rem;
+  padding-bottom: 0.9rem;
+  font-size: 1rem;
 }
 
 .button-stack button,
@@ -516,6 +553,11 @@ body[data-tool="continent"] .board-overlay {
   pointer-events: auto;
 }
 
+body[data-tool="paint-continent"] .board-overlay,
+body[data-tool="paint-ocean"] .board-overlay {
+  pointer-events: auto;
+}
+
 body[data-tool="crust"] .marker-overlay,
 body[data-tool="plate-id"] .marker-overlay,
 body[data-tool="direction"] .marker-overlay,
@@ -625,16 +667,55 @@ button:disabled {
 }
 
 .pencil-line {
-  stroke: var(--ink);
-  stroke-width: 0.5;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
 
+.pencil-line.plate-boundary {
+  stroke: rgba(29, 26, 22, 0.6);
+  stroke-width: 0.43;
+}
+
+.pencil-line.plate-divergent {
+  stroke: rgba(14, 12, 10, 0.95);
+  stroke-width: 0.72;
+}
+
+.pencil-line.plate-convergent-base {
+  stroke: rgba(14, 12, 10, 0.95);
+  stroke-width: 0.76;
+}
+
+.pencil-line.plate-convergent-zigzag {
+  fill: none;
+  stroke: rgba(14, 12, 10, 0.98);
+  stroke-width: 0.74;
+}
+
+.pencil-line.plate-oblique-curve {
+  fill: none;
+  stroke: rgba(14, 12, 10, 0.97);
+  stroke-width: 0.72;
+}
+
+.pencil-line.plate-transform {
+  stroke: rgba(14, 12, 10, 0.98);
+  stroke-width: 0.74;
+}
+
 .arrow-line {
-  stroke: var(--ink);
-  stroke-width: 0.75;
+  stroke: rgba(14, 12, 10, 0.96);
+  stroke-width: 0.92;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.divide-line {
+  stroke: rgba(14, 12, 10, 0.96);
+  stroke-width: 1;
+  stroke-dasharray: 6 4;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
@@ -696,3 +777,4 @@ button:disabled {
     transition: none !important;
   }
 }
+

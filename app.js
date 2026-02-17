@@ -30,12 +30,17 @@
   const draftStroke = "rgba(194, 99, 42, 0.8)";
   const draftPoint = "rgba(194, 99, 42, 0.9)";
   const draftPointActive = "rgba(79, 111, 106, 0.9)";
+  const surfacePaintColors = {
+    continent: "rgba(176, 108, 63, 0.3)",
+    ocean: "rgba(66, 133, 188, 0.28)",
+  };
   const markerHitRadius = Math.min(microW, microH) * 0.45;
   const markerIconSize = Math.min(microW, microH) * 0.75;
   const markerNumberSize = Math.min(microW, microH) * 0.6;
   const volcanoIconSize = Math.min(microW, microH) * 0.55;
   const crustIcons = {
     ocean: "\u{1F30A}",
+    mixed: "\u{1F3DD}\uFE0F",
     continent: "\u26F0\uFE0F",
   };
   const volcanoIcon = "\u{1F30B}";
@@ -55,9 +60,18 @@
     5: "SW",
     6: "NW",
   };
+  const PLATE_STYLES = {
+    boundary: "boundary",
+    divergent: "divergent",
+    convergent: "convergent",
+    transform: "transform",
+    oblique: "oblique",
+  };
+  const DEFAULT_SURFACE_BRUSH_RADIUS = Math.min(microW, microH) * 1.35;
 
   const state = {
     selectedCells: new Set(),
+    pointWeights: {},
     history: [],
     future: [],
     lastRoll: null,
@@ -66,6 +80,7 @@
     currentLine: null,
     lines: [],
     plateDraft: null,
+    plateStyle: PLATE_STYLES.boundary,
     wrapSide: null,
     markers: [],
     selectedMarkerId: null,
@@ -76,6 +91,9 @@
     continentDrag: null,
     selectedContinentId: null,
     continentHoverNode: null,
+    surfacePaintStamps: [],
+    surfacePaintDrag: null,
+    surfaceBrushRadius: DEFAULT_SURFACE_BRUSH_RADIUS,
     nextContinentId: 1,
     nextMarkerId: 1,
     clearConfirm: false,
@@ -84,6 +102,7 @@
   const ui = {};
   let edgeLayoutFrame = null;
   let lastEdgeLayout = null;
+  let rightPanelOffsetFrame = null;
 
   function init() {
     ui.board = document.getElementById("board");
@@ -91,6 +110,7 @@
     ui.rollSixBtn = document.getElementById("roll-6-btn");
     ui.pencilBtn = document.getElementById("pencil-btn");
     ui.arrowBtn = document.getElementById("arrow-btn");
+    ui.divideBtn = document.getElementById("divide-btn");
     ui.crustBtn = document.getElementById("crust-btn");
     ui.plateIdBtn = document.getElementById("plate-id-btn");
     ui.directionBtn = document.getElementById("direction-btn");
@@ -102,6 +122,7 @@
     ui.redoBtn = document.getElementById("redo-btn");
     ui.clearPointsBtn = document.getElementById("clear-points-btn");
     ui.clearArrowsBtn = document.getElementById("clear-arrows-btn");
+    ui.clearDividesBtn = document.getElementById("clear-divides-btn");
     ui.clearCrustBtn = document.getElementById("clear-crust-btn");
     ui.clearDirectionsBtn = document.getElementById("clear-directions-btn");
     ui.clearPlatesBtn = document.getElementById("clear-plates-btn");
@@ -120,6 +141,18 @@
     ui.edgeControls = document.getElementById("edge-controls");
     ui.wrapLeftBtn = document.getElementById("wrap-left-btn");
     ui.wrapRightBtn = document.getElementById("wrap-right-btn");
+    ui.plateModePanel = document.getElementById("plate-mode-panel");
+    ui.plateBoundaryBtn = document.getElementById("plate-boundary-btn");
+    ui.plateDivergentBtn = document.getElementById("plate-divergent-btn");
+    ui.plateConvergentBtn = document.getElementById("plate-convergent-btn");
+    ui.plateTransformBtn = document.getElementById("plate-transform-btn");
+    ui.plateObliqueBtn = document.getElementById("plate-oblique-btn");
+    ui.plateModeHint = document.getElementById("plate-mode-hint");
+    ui.surfacePaintPanel = document.getElementById("surface-paint-panel");
+    ui.paintContinentBtn = document.getElementById("paint-continent-btn");
+    ui.paintOceanBtn = document.getElementById("paint-ocean-btn");
+    ui.surfaceRadiusSlider = document.getElementById("surface-radius-slider");
+    ui.surfaceRadiusValue = document.getElementById("surface-radius-value");
     ui.cornerButtons = CORNERS.map((corner) => ({
       ...corner,
       el: document.getElementById(corner.id),
@@ -142,6 +175,9 @@
     ui.rollSixBtn.addEventListener("click", handleRollSix);
     ui.pencilBtn.addEventListener("click", togglePencil);
     ui.arrowBtn.addEventListener("click", toggleArrow);
+    if (ui.divideBtn) {
+      ui.divideBtn.addEventListener("click", toggleDivide);
+    }
     ui.crustBtn.addEventListener("click", toggleCrust);
     ui.plateIdBtn.addEventListener("click", togglePlateId);
     ui.directionBtn.addEventListener("click", toggleDirection);
@@ -153,6 +189,9 @@
     ui.redoBtn.addEventListener("click", handleRedo);
     ui.clearPointsBtn.addEventListener("click", handleClearPoints);
     ui.clearArrowsBtn.addEventListener("click", handleClearArrows);
+    if (ui.clearDividesBtn) {
+      ui.clearDividesBtn.addEventListener("click", handleClearDivides);
+    }
     ui.clearCrustBtn.addEventListener("click", handleClearCrust);
     ui.clearDirectionsBtn.addEventListener("click", handleClearDirections);
     ui.clearPlatesBtn.addEventListener("click", handleClearPlates);
@@ -169,6 +208,46 @@
     }
     if (ui.wrapRightBtn) {
       ui.wrapRightBtn.addEventListener("click", () => toggleWrapSide("right"));
+    }
+    if (ui.plateBoundaryBtn) {
+      ui.plateBoundaryBtn.addEventListener("click", () =>
+        setPlateStyle(PLATE_STYLES.boundary)
+      );
+    }
+    if (ui.plateDivergentBtn) {
+      ui.plateDivergentBtn.addEventListener("click", () =>
+        setPlateStyle(PLATE_STYLES.divergent)
+      );
+    }
+    if (ui.plateConvergentBtn) {
+      ui.plateConvergentBtn.addEventListener("click", () =>
+        setPlateStyle(PLATE_STYLES.convergent)
+      );
+    }
+    if (ui.plateTransformBtn) {
+      ui.plateTransformBtn.addEventListener("click", () =>
+        setPlateStyle(PLATE_STYLES.transform)
+      );
+    }
+    if (ui.plateObliqueBtn) {
+      ui.plateObliqueBtn.addEventListener("click", () =>
+        setPlateStyle(PLATE_STYLES.oblique)
+      );
+    }
+    if (ui.paintContinentBtn) {
+      ui.paintContinentBtn.addEventListener("click", togglePaintContinent);
+    }
+    if (ui.paintOceanBtn) {
+      ui.paintOceanBtn.addEventListener("click", togglePaintOcean);
+    }
+    if (ui.surfaceRadiusSlider) {
+      state.surfaceBrushRadius = clampSurfaceBrushRadius(
+        Number(ui.surfaceRadiusSlider.value) || DEFAULT_SURFACE_BRUSH_RADIUS
+      );
+      ui.surfaceRadiusSlider.value = String(
+        Math.round(state.surfaceBrushRadius)
+      );
+      ui.surfaceRadiusSlider.addEventListener("input", handleSurfaceRadiusInput);
     }
     if (ui.cornerButtons) {
       ui.cornerButtons.forEach((corner) => {
@@ -226,7 +305,11 @@
 
     const result = rollRandomPoint();
     if (result) {
-      setMessage(`Marked (${result.col}, ${result.row}).`);
+      if (result.repeated) {
+        setMessage(`Repeated (${result.col}, ${result.row}): point thickened.`);
+      } else {
+        setMessage(`Marked (${result.col}, ${result.row}).`);
+      }
     } else {
       setMessage("No free cell found.");
     }
@@ -242,46 +325,71 @@
     }
 
     let added = 0;
+    let repeated = 0;
     let lastResult = null;
 
-    for (let i = 0; i < 6; i += 1) {
-      if (state.selectedCells.size >= TOTAL_CELLS) {
-        break;
-      }
+    for (let i = 0; i < 30; i += 1) {
       const result = rollRandomPoint();
       if (!result) {
         break;
       }
-      added += 1;
+      if (result.repeated) {
+        repeated += 1;
+      } else {
+        added += 1;
+      }
       lastResult = result;
     }
 
-    if (added === 0) {
+    if (added === 0 && repeated === 0) {
       setMessage("No free cell found.");
     } else {
       const lastText = lastResult ? ` Last (${lastResult.col}, ${lastResult.row}).` : "";
-      setMessage(`Marked ${added} points.${lastText}`);
+      setMessage(`Rolled 30 points. New: ${added}. Thickened: ${repeated}.${lastText}`);
     }
 
     render();
   }
 
   function rollRandomPoint() {
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-      const col = rollD20();
-      const row = rollD20();
-      const microCol = col - 1;
-      const microRow = row - 1;
+    const col = rollD20();
+    const row = rollD20();
+    const microCol = col - 1;
+    const microRow = row - 1;
+    return addCell(microCol, microRow, col, row);
+  }
 
-      if (addCell(microCol, microRow, col, row)) {
-        return { col, row };
-      }
+  function isLineTool(tool) {
+    return tool === "pencil" || tool === "arrow" || tool === "divide";
+  }
+
+  function isSurfacePaintTool(tool) {
+    return tool === "paint-continent" || tool === "paint-ocean";
+  }
+
+  function getSurfacePaintTypeFromTool(tool, button = 0) {
+    if (button === 2) {
+      return "erase";
+    }
+    if (tool === "paint-continent") {
+      return "continent";
+    }
+    if (tool === "paint-ocean") {
+      return "ocean";
     }
     return null;
   }
 
-  function isLineTool(tool) {
-    return tool === "pencil" || tool === "arrow";
+  function clampSurfaceBrushRadius(value) {
+    return clamp(value, 4, 40);
+  }
+
+  function handleSurfaceRadiusInput(event) {
+    const next = clampSurfaceBrushRadius(
+      Number(event.target.value) || state.surfaceBrushRadius
+    );
+    state.surfaceBrushRadius = next;
+    render();
   }
 
   function isMarkerTool(tool) {
@@ -299,6 +407,9 @@
       state.plateDraft = null;
       state.wrapSide = null;
     }
+    if (state.tool === "pencil" && previousTool !== "pencil") {
+      state.plateStyle = PLATE_STYLES.boundary;
+    }
     if (!isMarkerTool(state.tool)) {
       state.markerDrag = null;
       if (isMarkerTool(previousTool)) {
@@ -311,6 +422,9 @@
       state.continentDrag = null;
       state.continentHoverNode = null;
     }
+    if (!isSurfacePaintTool(state.tool)) {
+      state.surfacePaintDrag = null;
+    }
     render();
   }
 
@@ -320,6 +434,10 @@
 
   function toggleArrow() {
     setTool("arrow");
+  }
+
+  function toggleDivide() {
+    setTool("divide");
   }
 
   function toggleCrust() {
@@ -338,13 +456,49 @@
     setTool("continent");
   }
 
+  function togglePaintContinent() {
+    setTool("paint-continent");
+  }
+
+  function togglePaintOcean() {
+    setTool("paint-ocean");
+  }
+
   function toggleVolcano() {
     setTool("volcano");
   }
 
+  function getPlateStyleLabel(style) {
+    if (style === PLATE_STYLES.divergent) {
+      return "Divergent";
+    }
+    if (style === PLATE_STYLES.convergent) {
+      return "Convergent";
+    }
+    if (style === PLATE_STYLES.transform) {
+      return "Transform";
+    }
+    if (style === PLATE_STYLES.oblique) {
+      return "Oblique";
+    }
+    return "Boundary";
+  }
+
+  function setPlateStyle(style) {
+    if (!Object.values(PLATE_STYLES).includes(style)) {
+      return;
+    }
+    if (state.tool !== "pencil") {
+      setTool("pencil");
+    }
+    state.plateStyle = style;
+    setMessage(`Plate mode: ${getPlateStyleLabel(style)}.`);
+    render();
+  }
+
   function toggleWrapSide(side) {
     if (state.tool !== "pencil") {
-      setMessage("Select Paint plates to use turn around.");
+      setMessage("Select Paint Boundaries to use turn around.");
       render();
       return;
     }
@@ -396,8 +550,15 @@
     return count;
   }
 
-  function hasPlateConnection(keyA, keyB) {
-    return state.lines.some((line) => {
+  function getPlateLineStyle(line) {
+    if (!line || (line.lineType || "plate") !== "plate") {
+      return PLATE_STYLES.boundary;
+    }
+    return line.plateStyle || PLATE_STYLES.boundary;
+  }
+
+  function findPlateConnection(keyA, keyB) {
+    const index = state.lines.findIndex((line) => {
       if ((line.lineType || "plate") !== "plate") {
         return false;
       }
@@ -409,9 +570,74 @@
         (line.startKey === keyB && line.endKey === keyA)
       );
     });
+    if (index < 0) {
+      return null;
+    }
+    return {
+      index,
+      line: state.lines[index],
+    };
   }
 
-  function addPlateConnection(start, end, wrapSide) {
+  function setPlateConnectionStyle(connection, plateStyle) {
+    if (!connection || !connection.line) {
+      return false;
+    }
+    const targetStyle = Object.values(PLATE_STYLES).includes(plateStyle)
+      ? plateStyle
+      : PLATE_STYLES.boundary;
+    const before = { ...connection.line };
+    if (getPlateLineStyle(connection.line) === targetStyle) {
+      return false;
+    }
+    connection.line.plateStyle = targetStyle;
+    recordHistory({
+      type: "line-update",
+      index: connection.index,
+      startKey: connection.line.startKey || null,
+      endKey: connection.line.endKey || null,
+      before,
+      after: { ...connection.line },
+    });
+    return true;
+  }
+
+  function updatePlateLineStyleAtPoint(point, plateStyle) {
+    if (!point) {
+      return { handled: false, updated: false };
+    }
+    const hitRadius = Math.min(microW, microH) * 0.32;
+    const lineHit = findNearestPlateLine(point.x, point.y, hitRadius);
+    if (!lineHit) {
+      return { handled: false, updated: false };
+    }
+    const connection = {
+      index: lineHit.index,
+      line: state.lines[lineHit.index],
+    };
+    const targetStyle = Object.values(PLATE_STYLES).includes(plateStyle)
+      ? plateStyle
+      : PLATE_STYLES.boundary;
+    const updated = setPlateConnectionStyle(connection, targetStyle);
+    const label = getPlateStyleLabel(targetStyle).toLowerCase();
+    setMessage(updated ? `Line set to ${label}.` : `Line already ${label}.`);
+    return { handled: true, updated };
+  }
+
+  function deletePlateLineAtPoint(point) {
+    if (!point) {
+      return { handled: false };
+    }
+    const hitRadius = Math.min(microW, microH) * 0.32;
+    const lineHit = findNearestPlateLine(point.x, point.y, hitRadius);
+    if (!lineHit) {
+      return { handled: false };
+    }
+    removeLine(lineHit.index);
+    return { handled: true };
+  }
+
+  function addPlateConnection(start, end, wrapSide, plateStyle = PLATE_STYLES.boundary) {
     const line = {
       x1: start.x,
       y1: start.y,
@@ -421,6 +647,9 @@
       startKey: start.key,
       endKey: end.key,
       wrapSide: wrapSide || null,
+      plateStyle: Object.values(PLATE_STYLES).includes(plateStyle)
+        ? plateStyle
+        : PLATE_STYLES.boundary,
     };
     state.lines.push(line);
     recordHistory({
@@ -463,11 +692,108 @@
     );
   }
 
+  function buildParallelSegments(segment, offset) {
+    const dx = segment.x2 - segment.x1;
+    const dy = segment.y2 - segment.y1;
+    const length = Math.hypot(dx, dy);
+    if (length <= 0.0001) {
+      return [segment, segment];
+    }
+    const nx = -dy / length;
+    const ny = dx / length;
+    return [
+      {
+        x1: segment.x1 + nx * offset,
+        y1: segment.y1 + ny * offset,
+        x2: segment.x2 + nx * offset,
+        y2: segment.y2 + ny * offset,
+      },
+      {
+        x1: segment.x1 - nx * offset,
+        y1: segment.y1 - ny * offset,
+        x2: segment.x2 - nx * offset,
+        y2: segment.y2 - ny * offset,
+      },
+    ];
+  }
+
+  function buildConvergentPathData(segment) {
+    const dx = segment.x2 - segment.x1;
+    const dy = segment.y2 - segment.y1;
+    const length = Math.hypot(dx, dy);
+    if (length <= 0.0001) {
+      return `M ${segment.x1.toFixed(2)} ${segment.y1.toFixed(2)} L ${segment.x2.toFixed(
+        2
+      )} ${segment.y2.toFixed(2)}`;
+    }
+    const ux = dx / length;
+    const uy = dy / length;
+    const nx = -uy;
+    const ny = ux;
+    const amplitude = Math.min(microW, microH) * 0.22;
+    const step = Math.min(microW, microH) * 0.4;
+    const waveCount = Math.max(2, Math.floor(length / step));
+    const points = [];
+    points.push({ x: segment.x1, y: segment.y1 });
+    for (let i = 1; i < waveCount; i += 1) {
+      const t = i / waveCount;
+      const baseX = segment.x1 + dx * t;
+      const baseY = segment.y1 + dy * t;
+      const direction = i % 2 === 0 ? -1 : 1;
+      points.push({
+        x: baseX + nx * amplitude * direction,
+        y: baseY + ny * amplitude * direction,
+      });
+    }
+    points.push({ x: segment.x2, y: segment.y2 });
+    const commands = points.map((point, index) =>
+      `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`
+    );
+    return commands.join(" ");
+  }
+
+  function buildObliquePathData(segment) {
+    const dx = segment.x2 - segment.x1;
+    const dy = segment.y2 - segment.y1;
+    const length = Math.hypot(dx, dy);
+    if (length <= 0.0001) {
+      return `M ${segment.x1.toFixed(2)} ${segment.y1.toFixed(2)} L ${segment.x2.toFixed(
+        2
+      )} ${segment.y2.toFixed(2)}`;
+    }
+    const ux = dx / length;
+    const uy = dy / length;
+    const nx = -uy;
+    const ny = ux;
+    const amplitude = Math.min(microW, microH) * 0.16;
+    const step = Math.min(microW, microH) * 0.48;
+    const waveCount = Math.max(2, Math.floor(length / step));
+    const commands = [
+      `M ${segment.x1.toFixed(2)} ${segment.y1.toFixed(2)}`,
+    ];
+    for (let i = 1; i <= waveCount; i += 1) {
+      const t = i / waveCount;
+      const endX = segment.x1 + dx * t;
+      const endY = segment.y1 + dy * t;
+      const midT = (i - 0.5) / waveCount;
+      const baseMidX = segment.x1 + dx * midT;
+      const baseMidY = segment.y1 + dy * midT;
+      const direction = i % 2 === 0 ? -1 : 1;
+      const ctrlX = baseMidX + nx * amplitude * direction;
+      const ctrlY = baseMidY + ny * amplitude * direction;
+      commands.push(
+        `Q ${ctrlX.toFixed(2)} ${ctrlY.toFixed(2)} ${endX.toFixed(2)} ${endY.toFixed(2)}`
+      );
+    }
+    return commands.join(" ");
+  }
+
   function hasMarks() {
     return (
       state.selectedCells.size > 0 ||
       state.lines.length > 0 ||
       state.markers.length > 0 ||
+      state.surfacePaintStamps.length > 0 ||
       state.continentPieces.length > 0 ||
       state.continentDraft.length > 0
     );
@@ -520,6 +846,11 @@
     clearLinesByType("arrow", "Arrows");
   }
 
+  function handleClearDivides() {
+    cancelClearConfirm();
+    clearLinesByType("divide", "Divides");
+  }
+
   function handleClearCrust() {
     cancelClearConfirm();
     clearMarkersByType("crust", "Crust markers");
@@ -552,8 +883,12 @@
       return;
     }
     clearPlateDraft();
-    const points = Array.from(state.selectedCells);
+    const points = Array.from(state.selectedCells).map((key) => ({
+      key,
+      weight: getPointWeight(key),
+    }));
     state.selectedCells.clear();
+    state.pointWeights = {};
     state.lastRoll = null;
     recordHistory({ type: "bulk-clear", itemType: "points", points });
     setMessage("Points cleared.");
@@ -629,7 +964,7 @@
   function clearContinents() {
     const hasDraft = state.continentDraft.length > 0;
     if (state.continentPieces.length === 0 && !hasDraft) {
-      setMessage("No continents to clear.");
+      setMessage("No cratons to clear.");
       render();
       return;
     }
@@ -652,21 +987,25 @@
         selectedContinentId,
       });
     }
-    setMessage("Continents cleared.");
+    setMessage("Cratons cleared.");
     render();
   }
 
   function clearAllState() {
     state.selectedCells.clear();
+    state.pointWeights = {};
     state.lastRoll = null;
     state.currentLine = null;
     state.isDrawing = false;
     state.lines = [];
     state.plateDraft = null;
+    state.plateStyle = PLATE_STYLES.boundary;
     state.wrapSide = null;
     state.markers = [];
     state.selectedMarkerId = null;
     state.markerDrag = null;
+    state.surfacePaintStamps = [];
+    state.surfacePaintDrag = null;
     state.continentPieces = [];
     state.continentDraft = [];
     state.continentCursor = null;
@@ -680,9 +1019,12 @@
   function createClearSnapshot() {
     return {
       selectedCells: Array.from(state.selectedCells),
+      pointWeights: { ...state.pointWeights },
       lines: state.lines.map((line) => ({ ...line })),
       lastRoll: state.lastRoll ? { ...state.lastRoll } : null,
+      plateStyle: state.plateStyle,
       markers: state.markers.map(cloneMarker),
+      surfacePaintStamps: state.surfacePaintStamps.map(cloneSurfaceStamp),
       selectedMarkerId: state.selectedMarkerId,
       continentPieces: state.continentPieces.map(cloneContinentPiece),
       selectedContinentId: state.selectedContinentId,
@@ -693,9 +1035,24 @@
 
   function restoreClearSnapshot(snapshot) {
     state.selectedCells = new Set(snapshot.selectedCells);
+    if (snapshot.pointWeights) {
+      state.pointWeights = { ...snapshot.pointWeights };
+    } else {
+      state.pointWeights = {};
+      state.selectedCells.forEach((key) => {
+        state.pointWeights[key] = 1;
+      });
+    }
     state.lines = snapshot.lines.map((line) => ({ ...line }));
     state.lastRoll = snapshot.lastRoll ? { ...snapshot.lastRoll } : null;
+    state.plateStyle =
+      snapshot.plateStyle && Object.values(PLATE_STYLES).includes(snapshot.plateStyle)
+        ? snapshot.plateStyle
+        : PLATE_STYLES.boundary;
     state.markers = snapshot.markers.map(cloneMarker);
+    state.surfacePaintStamps = snapshot.surfacePaintStamps
+      ? snapshot.surfacePaintStamps.map(cloneSurfaceStamp)
+      : [];
     state.selectedMarkerId = snapshot.selectedMarkerId;
     state.continentPieces = snapshot.continentPieces.map(cloneContinentPiece);
     state.selectedContinentId = snapshot.selectedContinentId;
@@ -706,6 +1063,7 @@
     state.plateDraft = null;
     state.wrapSide = null;
     state.markerDrag = null;
+    state.surfacePaintDrag = null;
     state.continentDraft = [];
     state.continentCursor = null;
     state.continentDrag = null;
@@ -727,7 +1085,7 @@
   function handleDeleteContinent() {
     cancelClearConfirm();
     if (!deleteSelectedContinent()) {
-      setMessage("Select a continent to delete.");
+      setMessage("Select a craton to delete.");
       render();
       return;
     }
@@ -739,17 +1097,38 @@
       return;
     }
     cancelClearConfirm();
+    const point = getSvgPointInPage(event, false);
+    if (!point) {
+      return;
+    }
     if (state.selectedCells.size === 0) {
       setMessage("Roll points first.");
       render();
       return;
     }
-    const point = getSvgPointInPage(event, false);
-    if (!point) {
+    if (state.plateStyle !== PLATE_STYLES.boundary) {
+      const styleResult = updatePlateLineStyleAtPoint(point, state.plateStyle);
+      if (styleResult.handled) {
+        clearPlateDraft();
+      } else {
+        clearPlateDraft();
+        setMessage(
+          `${getPlateStyleLabel(
+            state.plateStyle
+          )} mode changes existing boundary lines.`
+        );
+      }
+      render();
       return;
     }
     const hit = findNearestPoint(point.x, point.y, plateHitRadius);
     if (!hit) {
+      const styleResult = updatePlateLineStyleAtPoint(point, state.plateStyle);
+      if (styleResult.handled) {
+        clearPlateDraft();
+        render();
+        return;
+      }
       if (state.plateDraft) {
         clearPlateDraft();
         setMessage("Chain ended.");
@@ -798,14 +1177,18 @@
       return;
     }
 
-    if (hasPlateConnection(state.plateDraft.key, hitPoint.key)) {
-      setMessage("Points already connected.");
+    const existingConnection = findPlateConnection(
+      state.plateDraft.key,
+      hitPoint.key
+    );
+    if (existingConnection) {
+      setMessage("Points already connected. Left click the line to convert it.");
       render();
       return;
     }
 
     const wrapSide = state.wrapSide;
-    addPlateConnection(state.plateDraft, hitPoint, wrapSide);
+    addPlateConnection(state.plateDraft, hitPoint, wrapSide, state.plateStyle);
     if (wrapSide) {
       state.wrapSide = null;
     }
@@ -820,12 +1203,16 @@
     render();
   }
 
+  function isStrokeTool(tool) {
+    return tool === "arrow" || tool === "divide";
+  }
+
   function handlePointerDown(event) {
     if (state.tool === "pencil") {
       handlePlatePointerDown(event);
       return;
     }
-    if (state.tool !== "arrow" || event.button !== 0) {
+    if (!isStrokeTool(state.tool) || event.button !== 0) {
       return;
     }
     cancelClearConfirm();
@@ -839,7 +1226,7 @@
       y1: point.y,
       x2: point.x,
       y2: point.y,
-      lineType: "arrow",
+      lineType: state.tool === "divide" ? "divide" : "arrow",
     };
     if (ui.board.setPointerCapture) {
       ui.board.setPointerCapture(event.pointerId);
@@ -848,14 +1235,14 @@
   }
 
   function handlePointerMove(event) {
-    if (state.tool !== "arrow" || !state.isDrawing) {
+    if (!isStrokeTool(state.tool) || !state.isDrawing) {
       return;
     }
     updateCurrentLine(event);
   }
 
   function handlePointerUp(event) {
-    if (state.tool !== "arrow" || !state.isDrawing) {
+    if (!isStrokeTool(state.tool) || !state.isDrawing) {
       return;
     }
     state.isDrawing = false;
@@ -872,9 +1259,33 @@
   function handleContextMenu(event) {
     event.preventDefault();
     cancelClearConfirm();
-    if (state.tool === "pencil" && state.plateDraft) {
-      clearPlateDraft();
-      setMessage("Chain ended.");
+    const point = getSvgPointRaw(event);
+    if (state.tool === "pencil") {
+      if (state.plateStyle === PLATE_STYLES.boundary) {
+        const deleteResult = deletePlateLineAtPoint(point);
+        if (deleteResult.handled) {
+          clearPlateDraft();
+          render();
+          return;
+        }
+      } else {
+        const resetResult = updatePlateLineStyleAtPoint(point, PLATE_STYLES.boundary);
+        if (resetResult.handled) {
+          clearPlateDraft();
+          render();
+          return;
+        }
+      }
+      if (state.plateDraft) {
+        clearPlateDraft();
+        setMessage("Chain ended.");
+      } else {
+        if (state.plateStyle === PLATE_STYLES.boundary) {
+          setMessage("Right click a plate line to delete it.");
+        } else {
+          setMessage("Right click a plate line to reset it to boundary.");
+        }
+      }
       render();
       return;
     }
@@ -882,7 +1293,6 @@
       state.isDrawing = false;
       state.currentLine = null;
     }
-    const point = getSvgPointRaw(event);
     if (!point) {
       return;
     }
@@ -1084,7 +1494,8 @@
     const dy = y2 - y1;
     const length = Math.hypot(dx, dy);
     const minLength =
-      Math.min(microW, microH) * (lineType === "arrow" ? 0.3 : 0.2);
+      Math.min(microW, microH) *
+      (lineType === "arrow" || lineType === "divide" ? 0.3 : 0.2);
     if (length >= minLength) {
       const line = { x1, y1, x2, y2, lineType };
       state.lines.push(line);
@@ -1093,7 +1504,13 @@
         line: { ...line },
         index: state.lines.length - 1,
       });
-      setMessage(lineType === "arrow" ? "Arrow drawn." : "Line drawn.");
+      if (lineType === "arrow") {
+        setMessage("Arrow drawn.");
+      } else if (lineType === "divide") {
+        setMessage("Divide line drawn.");
+      } else {
+        setMessage("Line drawn.");
+      }
     }
     state.currentLine = null;
     render();
@@ -1191,10 +1608,13 @@
     };
   }
 
-  function findNearestLine(x, y, radius) {
+  function findNearestLine(x, y, radius, filterFn = null) {
     let best = null;
     const radiusSq = radius * radius;
     state.lines.forEach((line, index) => {
+      if (filterFn && !filterFn(line, index)) {
+        return;
+      }
       const segments = getLineSegments(line);
       let distSq = Infinity;
       segments.forEach((segment) => {
@@ -1218,6 +1638,15 @@
     };
   }
 
+  function findNearestPlateLine(x, y, radius) {
+    return findNearestLine(
+      x,
+      y,
+      radius,
+      (line) => (line.lineType || "plate") === "plate"
+    );
+  }
+
   function distanceToSegmentSquared(px, py, line) {
     const { x1, y1, x2, y2 } = line;
     const dx = x2 - x1;
@@ -1237,13 +1666,16 @@
   }
 
   function removePoint(key, microCol, microRow) {
+    const weight = getPointWeight(key);
     state.selectedCells.delete(key);
+    delete state.pointWeights[key];
     const col = microCol + 1;
     const row = microRow + 1;
     recordHistory({
       type: "erase",
       itemType: "point",
       key,
+      weight,
       roll: { col, row },
     });
     syncLastPoint();
@@ -1267,10 +1699,19 @@
   function createMarkerFromTool(point) {
     if (state.tool === "crust") {
       const roll = rollD6();
-      const crustType = roll <= 3 ? "ocean" : "continent";
-      setMessage(
-        crustType === "ocean" ? "Crust: oceanic." : "Crust: continental."
-      );
+      let crustType = "mixed";
+      if (roll <= 2) {
+        crustType = "ocean";
+      } else if (roll === 6) {
+        crustType = "continent";
+      }
+      if (crustType === "ocean") {
+        setMessage("Crust: oceanic.");
+      } else if (crustType === "continent") {
+        setMessage("Crust: continental.");
+      } else {
+        setMessage("Crust: mixed plate.");
+      }
       return createMarker("crust", point, crustType);
     }
     if (state.tool === "direction") {
@@ -1411,6 +1852,15 @@
     return { ...marker };
   }
 
+  function cloneSurfaceStamp(stamp) {
+    return {
+      x: stamp.x,
+      y: stamp.y,
+      radius: stamp.radius,
+      type: stamp.type,
+    };
+  }
+
   function applyMarkerSnapshot(target, snapshot) {
     target.type = snapshot.type;
     target.x = snapshot.x;
@@ -1433,16 +1883,46 @@
     return state.markers.find((marker) => marker.id === id);
   }
 
+  function getPointWeight(key) {
+    return state.pointWeights[key] || 1;
+  }
+
+  function getPointDotRadius(key) {
+    return getPointWeight(key) > 1 ? dotRadius * 1.85 : dotRadius;
+  }
+
   function addCell(microCol, microRow, col, row) {
     const key = `${microCol},${microRow}`;
+    const roll = { col, row };
     if (state.selectedCells.has(key)) {
-      return false;
+      const beforeWeight = getPointWeight(key);
+      const afterWeight = beforeWeight + 1;
+      state.pointWeights[key] = afterWeight;
+      recordHistory({
+        type: "point-weight",
+        key,
+        roll,
+        beforeWeight,
+        afterWeight,
+      });
+      state.lastRoll = roll;
+      return {
+        key,
+        col,
+        row,
+        repeated: true,
+      };
     }
     state.selectedCells.add(key);
-    const roll = { col, row };
-    recordHistory({ type: "point", key, roll });
+    state.pointWeights[key] = 1;
+    recordHistory({ type: "point", key, roll, weight: 1 });
     state.lastRoll = roll;
-    return true;
+    return {
+      key,
+      col,
+      row,
+      repeated: false,
+    };
   }
 
   function toggleCornerPoint(col, row) {
@@ -1496,10 +1976,21 @@
   function applyUndoEntry(entry) {
     if (entry.type === "point") {
       state.selectedCells.delete(entry.key);
+      delete state.pointWeights[entry.key];
+      return;
+    }
+    if (entry.type === "point-weight") {
+      if (state.selectedCells.has(entry.key)) {
+        state.pointWeights[entry.key] = entry.beforeWeight || 1;
+      }
       return;
     }
     if (entry.type === "line-add") {
       removeLineBySnapshot(entry);
+      return;
+    }
+    if (entry.type === "line-update") {
+      undoLineUpdate(entry);
       return;
     }
     if (entry.type === "line") {
@@ -1509,6 +2000,7 @@
     if (entry.type === "erase") {
       if (entry.itemType === "point") {
         state.selectedCells.add(entry.key);
+        state.pointWeights[entry.key] = entry.weight || 1;
         return;
       }
       if (entry.itemType === "line") {
@@ -1552,10 +2044,21 @@
   function applyRedoEntry(entry) {
     if (entry.type === "point") {
       state.selectedCells.add(entry.key);
+      state.pointWeights[entry.key] = entry.weight || 1;
+      return;
+    }
+    if (entry.type === "point-weight") {
+      if (state.selectedCells.has(entry.key)) {
+        state.pointWeights[entry.key] = entry.afterWeight || 1;
+      }
       return;
     }
     if (entry.type === "line-add") {
       insertLineAt(entry.index, entry.line);
+      return;
+    }
+    if (entry.type === "line-update") {
+      redoLineUpdate(entry);
       return;
     }
     if (entry.type === "line") {
@@ -1564,6 +2067,7 @@
     if (entry.type === "erase") {
       if (entry.itemType === "point") {
         state.selectedCells.delete(entry.key);
+        delete state.pointWeights[entry.key];
         return;
       }
       if (entry.itemType === "line") {
@@ -1606,7 +2110,13 @@
 
   function undoBulkClear(entry) {
     if (entry.itemType === "points") {
-      entry.points.forEach((key) => state.selectedCells.add(key));
+      entry.points.forEach((point) => {
+        const key = typeof point === "string" ? point : point.key;
+        const weight =
+          typeof point === "string" ? 1 : point.weight || 1;
+        state.selectedCells.add(key);
+        state.pointWeights[key] = weight;
+      });
       return;
     }
     if (entry.itemType === "lines") {
@@ -1630,7 +2140,11 @@
 
   function redoBulkClear(entry) {
     if (entry.itemType === "points") {
-      entry.points.forEach((key) => state.selectedCells.delete(key));
+      entry.points.forEach((point) => {
+        const key = typeof point === "string" ? point : point.key;
+        state.selectedCells.delete(key);
+        delete state.pointWeights[key];
+      });
       return;
     }
     if (entry.itemType === "lines") {
@@ -1679,7 +2193,7 @@
     }
   }
 
-  function linesMatch(a, b) {
+  function linesMatchGeometry(a, b) {
     if (!a || !b) {
       return false;
     }
@@ -1690,8 +2204,60 @@
       Math.abs(a.x2 - b.x2) <= epsilon &&
       Math.abs(a.y2 - b.y2) <= epsilon &&
       (a.lineType || "plate") === (b.lineType || "plate") &&
-      (a.wrapSide || null) === (b.wrapSide || null)
+      (a.wrapSide || null) === (b.wrapSide || null) &&
+      (a.startKey || null) === (b.startKey || null) &&
+      (a.endKey || null) === (b.endKey || null)
     );
+  }
+
+  function linesMatch(a, b) {
+    return (
+      linesMatchGeometry(a, b) &&
+      getPlateLineStyle(a) === getPlateLineStyle(b)
+    );
+  }
+
+  function findLineUpdateTarget(entry) {
+    if (entry.startKey && entry.endKey) {
+      const match = findPlateConnection(entry.startKey, entry.endKey);
+      if (match) {
+        return match;
+      }
+    }
+    if (
+      Number.isInteger(entry.index) &&
+      entry.index >= 0 &&
+      entry.index < state.lines.length
+    ) {
+      return { index: entry.index, line: state.lines[entry.index] };
+    }
+    const snapshot = entry.after || entry.before;
+    if (!snapshot) {
+      return null;
+    }
+    const matchIndex = state.lines.findIndex((line) =>
+      linesMatchGeometry(line, snapshot)
+    );
+    if (matchIndex < 0) {
+      return null;
+    }
+    return { index: matchIndex, line: state.lines[matchIndex] };
+  }
+
+  function undoLineUpdate(entry) {
+    const target = findLineUpdateTarget(entry);
+    if (!target || !entry.before) {
+      return;
+    }
+    state.lines[target.index] = { ...target.line, ...entry.before };
+  }
+
+  function redoLineUpdate(entry) {
+    const target = findLineUpdateTarget(entry);
+    if (!target || !entry.after) {
+      return;
+    }
+    state.lines[target.index] = { ...target.line, ...entry.after };
   }
 
   function restoreMarkers(items) {
@@ -1799,7 +2365,10 @@
   function syncLastPoint() {
     for (let i = state.history.length - 1; i >= 0; i -= 1) {
       const entry = state.history[i];
-      if (entry.type === "point" && state.selectedCells.has(entry.key)) {
+      if (
+        (entry.type === "point" || entry.type === "point-weight") &&
+        state.selectedCells.has(entry.key)
+      ) {
         state.lastRoll = entry.roll;
         return;
       }
@@ -1833,9 +2402,11 @@
 
   function render() {
     if (state.tool === "pencil") {
-      ui.toolMode.textContent = "Paint plates";
+      ui.toolMode.textContent = "Paint Boundaries";
     } else if (state.tool === "arrow") {
       ui.toolMode.textContent = "Paint arrows";
+    } else if (state.tool === "divide") {
+      ui.toolMode.textContent = "Paint Divides";
     } else if (state.tool === "crust") {
       ui.toolMode.textContent = "Roll crust";
     } else if (state.tool === "plate-id") {
@@ -1843,7 +2414,11 @@
     } else if (state.tool === "direction") {
       ui.toolMode.textContent = "Roll directions";
     } else if (state.tool === "continent") {
-      ui.toolMode.textContent = "Paint continents";
+      ui.toolMode.textContent = "Paint Cratons";
+    } else if (state.tool === "paint-continent") {
+      ui.toolMode.textContent = "Paint Continents";
+    } else if (state.tool === "paint-ocean") {
+      ui.toolMode.textContent = "Paint Oceans";
     } else if (state.tool === "volcano") {
       ui.toolMode.textContent = "Add volcanoes";
     } else {
@@ -1856,6 +2431,9 @@
     const arrowCount = state.lines.filter(
       (line) => (line.lineType || "plate") === "arrow"
     ).length;
+    const divideCount = state.lines.filter(
+      (line) => (line.lineType || "plate") === "divide"
+    ).length;
     ui.rollBtn.disabled = state.selectedCells.size >= TOTAL_CELLS;
     ui.rollSixBtn.disabled = state.selectedCells.size >= TOTAL_CELLS;
     ui.clearBtn.disabled = !hasMarks();
@@ -1864,6 +2442,9 @@
     ui.redoBtn.disabled = state.future.length === 0;
     ui.clearPointsBtn.disabled = state.selectedCells.size === 0;
     ui.clearArrowsBtn.disabled = arrowCount === 0;
+    if (ui.clearDividesBtn) {
+      ui.clearDividesBtn.disabled = divideCount === 0;
+    }
     ui.clearCrustBtn.disabled = (markerCounts.crust || 0) === 0;
     ui.clearDirectionsBtn.disabled = (markerCounts.direction || 0) === 0;
     ui.clearPlatesBtn.disabled = (markerCounts["plate-id"] || 0) === 0;
@@ -1874,6 +2455,10 @@
     ui.pencilBtn.classList.toggle("active", state.tool === "pencil");
     ui.arrowBtn.setAttribute("aria-pressed", state.tool === "arrow");
     ui.arrowBtn.classList.toggle("active", state.tool === "arrow");
+    if (ui.divideBtn) {
+      ui.divideBtn.setAttribute("aria-pressed", state.tool === "divide");
+      ui.divideBtn.classList.toggle("active", state.tool === "divide");
+    }
     ui.crustBtn.setAttribute("aria-pressed", state.tool === "crust");
     ui.crustBtn.classList.toggle("active", state.tool === "crust");
     ui.plateIdBtn.setAttribute("aria-pressed", state.tool === "plate-id");
@@ -1884,6 +2469,77 @@
     ui.continentBtn.classList.toggle("active", state.tool === "continent");
     ui.volcanoBtn.setAttribute("aria-pressed", state.tool === "volcano");
     ui.volcanoBtn.classList.toggle("active", state.tool === "volcano");
+    if (ui.paintContinentBtn) {
+      ui.paintContinentBtn.setAttribute(
+        "aria-pressed",
+        state.tool === "paint-continent"
+      );
+      ui.paintContinentBtn.classList.toggle(
+        "active",
+        state.tool === "paint-continent"
+      );
+    }
+    if (ui.paintOceanBtn) {
+      ui.paintOceanBtn.setAttribute("aria-pressed", state.tool === "paint-ocean");
+      ui.paintOceanBtn.classList.toggle("active", state.tool === "paint-ocean");
+    }
+    if (ui.surfaceRadiusSlider) {
+      const roundedRadius = Math.round(clampSurfaceBrushRadius(state.surfaceBrushRadius));
+      ui.surfaceRadiusSlider.value = String(roundedRadius);
+      if (ui.surfaceRadiusValue) {
+        ui.surfaceRadiusValue.textContent = String(roundedRadius);
+      }
+    }
+    const plateModeVisible = state.tool === "pencil";
+    if (ui.plateModePanel) {
+      ui.plateModePanel.hidden = !plateModeVisible;
+    }
+    if (ui.surfacePaintPanel) {
+      ui.surfacePaintPanel.hidden = false;
+    }
+    if (ui.plateBoundaryBtn) {
+      const selected = state.plateStyle === PLATE_STYLES.boundary;
+      ui.plateBoundaryBtn.setAttribute("aria-pressed", selected);
+      ui.plateBoundaryBtn.classList.toggle("active", selected);
+    }
+    if (ui.plateDivergentBtn) {
+      const selected = state.plateStyle === PLATE_STYLES.divergent;
+      ui.plateDivergentBtn.setAttribute("aria-pressed", selected);
+      ui.plateDivergentBtn.classList.toggle("active", selected);
+    }
+    if (ui.plateConvergentBtn) {
+      const selected = state.plateStyle === PLATE_STYLES.convergent;
+      ui.plateConvergentBtn.setAttribute("aria-pressed", selected);
+      ui.plateConvergentBtn.classList.toggle("active", selected);
+    }
+    if (ui.plateTransformBtn) {
+      const selected = state.plateStyle === PLATE_STYLES.transform;
+      ui.plateTransformBtn.setAttribute("aria-pressed", selected);
+      ui.plateTransformBtn.classList.toggle("active", selected);
+    }
+    if (ui.plateObliqueBtn) {
+      const selected = state.plateStyle === PLATE_STYLES.oblique;
+      ui.plateObliqueBtn.setAttribute("aria-pressed", selected);
+      ui.plateObliqueBtn.classList.toggle("active", selected);
+    }
+    if (ui.plateModeHint) {
+      if (state.plateStyle === PLATE_STYLES.divergent) {
+        ui.plateModeHint.textContent =
+          "Left click a boundary line to convert it into double parallel lines. Right click resets any plate line to boundary.";
+      } else if (state.plateStyle === PLATE_STYLES.convergent) {
+        ui.plateModeHint.textContent =
+          "Left click a boundary line to add a convergent zigzag line. Right click resets any plate line to boundary.";
+      } else if (state.plateStyle === PLATE_STYLES.transform) {
+        ui.plateModeHint.textContent =
+          "Left click a boundary line to convert it into close parallel lines with opposite arrows. Right click resets any plate line to boundary.";
+      } else if (state.plateStyle === PLATE_STYLES.oblique) {
+        ui.plateModeHint.textContent =
+          "Left click a boundary line to add an oblique curved zigzag. Right click resets any plate line to boundary.";
+      } else {
+        ui.plateModeHint.textContent =
+          "Boundary mode creates new links between points. Right click a plate line to delete it.";
+      }
+    }
     const wrapEnabled = state.tool === "pencil";
     if (ui.wrapLeftBtn) {
       ui.wrapLeftBtn.disabled = !wrapEnabled;
@@ -1912,6 +2568,14 @@
     ui.board.innerHTML = buildSvg();
     drawContinents();
     drawMarkers();
+    scheduleRightPanelOffsetUpdate();
+    if (ui.continentCanvas && !state.continentDrag && !state.surfacePaintDrag) {
+      if (state.tool === "continent" || isSurfacePaintTool(state.tool)) {
+        ui.continentCanvas.style.cursor = "crosshair";
+      } else {
+        ui.continentCanvas.style.cursor = "default";
+      }
+    }
     if (ui.markerLayer && !state.markerDrag) {
       ui.markerLayer.style.cursor = isMarkerTool(state.tool) ? "crosshair" : "default";
     }
@@ -1962,23 +2626,104 @@
 
     state.lines.forEach((line) => {
       const lineType = line.lineType || "plate";
-      const lineClass = lineType === "arrow" ? "arrow-line" : "pencil-line";
-      const markerEnd = lineType === "arrow" ? ' marker-end="url(#arrow-head)"' : "";
       const segments = getLineSegments(line);
+      if (lineType === "arrow") {
+        segments.forEach((segment) => {
+          parts.push(
+            `<line class="arrow-line" marker-end="url(#arrow-head)" x1="${segment.x1.toFixed(
+              2
+            )}" y1="${segment.y1.toFixed(2)}" x2="${segment.x2.toFixed(
+              2
+            )}" y2="${segment.y2.toFixed(2)}" />`
+          );
+        });
+        return;
+      }
+      if (lineType === "divide") {
+        segments.forEach((segment) => {
+          parts.push(
+            `<line class="divide-line" x1="${segment.x1.toFixed(2)}" y1="${segment.y1.toFixed(
+              2
+            )}" x2="${segment.x2.toFixed(2)}" y2="${segment.y2.toFixed(2)}" />`
+          );
+        });
+        return;
+      }
+      const plateStyle = getPlateLineStyle(line);
       segments.forEach((segment) => {
+        if (
+          plateStyle === PLATE_STYLES.divergent ||
+          plateStyle === PLATE_STYLES.transform
+        ) {
+          const parallelSegments = buildParallelSegments(
+            segment,
+            Math.min(microW, microH) *
+              (plateStyle === PLATE_STYLES.transform ? 0.12 : 0.19)
+          );
+          parallelSegments.forEach((parallel, index) => {
+            if (plateStyle === PLATE_STYLES.transform) {
+              const directed =
+                index === 0
+                  ? parallel
+                  : {
+                      x1: parallel.x2,
+                      y1: parallel.y2,
+                      x2: parallel.x1,
+                      y2: parallel.y1,
+                    };
+              parts.push(
+                `<line class="pencil-line plate-transform" marker-end="url(#arrow-head)" x1="${directed.x1.toFixed(
+                  2
+                )}" y1="${directed.y1.toFixed(2)}" x2="${directed.x2.toFixed(
+                  2
+                )}" y2="${directed.y2.toFixed(2)}" />`
+              );
+              return;
+            }
+            parts.push(
+              `<line class="pencil-line plate-divergent" x1="${parallel.x1.toFixed(
+                2
+              )}" y1="${parallel.y1.toFixed(2)}" x2="${parallel.x2.toFixed(
+                2
+              )}" y2="${parallel.y2.toFixed(2)}" />`
+            );
+          });
+          return;
+        }
         parts.push(
-          `<line class="${lineClass}"${markerEnd} x1="${segment.x1.toFixed(
+          `<line class="${
+            plateStyle === PLATE_STYLES.convergent ||
+            plateStyle === PLATE_STYLES.oblique
+              ? "pencil-line plate-convergent-base"
+              : "pencil-line plate-boundary"
+          }" x1="${segment.x1.toFixed(2)}" y1="${segment.y1.toFixed(
             2
-          )}" y1="${segment.y1.toFixed(2)}" x2="${segment.x2.toFixed(
-            2
-          )}" y2="${segment.y2.toFixed(2)}" />`
+          )}" x2="${segment.x2.toFixed(2)}" y2="${segment.y2.toFixed(2)}" />`
         );
+        if (plateStyle === PLATE_STYLES.convergent) {
+          parts.push(
+            `<path class="pencil-line plate-convergent-zigzag" fill="none" d="${buildConvergentPathData(
+              segment
+            )}" />`
+          );
+        } else if (plateStyle === PLATE_STYLES.oblique) {
+          parts.push(
+            `<path class="pencil-line plate-oblique-curve" fill="none" d="${buildObliquePathData(
+              segment
+            )}" />`
+          );
+        }
       });
     });
 
     if (state.currentLine) {
       const lineType = state.currentLine.lineType || "plate";
-      const lineClass = lineType === "arrow" ? "arrow-line" : "pencil-line";
+      const lineClass =
+        lineType === "arrow"
+          ? "arrow-line"
+          : lineType === "divide"
+            ? "divide-line"
+            : "pencil-line";
       const markerEnd = lineType === "arrow" ? ' marker-end="url(#arrow-head)"' : "";
       parts.push(
         `<line class="${lineClass}"${markerEnd} x1="${state.currentLine.x1.toFixed(
@@ -1993,10 +2738,11 @@
       const [col, row] = key.split(",").map(Number);
       const cx = innerLeft + col * microW + microW / 2;
       const cy = innerTop + row * microH + microH / 2;
+      const radius = getPointDotRadius(key);
       parts.push(
         `<circle class="cell-dot" cx="${cx.toFixed(2)}" cy="${cy.toFixed(
           2
-        )}" r="${dotRadius.toFixed(2)}" />`
+        )}" r="${radius.toFixed(2)}" />`
       );
     });
 
@@ -2045,6 +2791,7 @@
 
   function handleResize() {
     updateHeaderOffset();
+    scheduleRightPanelOffsetUpdate();
     updateOverlayCanvasSize();
     drawContinents();
     scheduleEdgeControlsLayout();
@@ -2059,6 +2806,48 @@
     document.documentElement.style.setProperty(
       "--header-offset",
       `${Math.round(offset)}px`
+    );
+  }
+
+  function scheduleRightPanelOffsetUpdate() {
+    if (rightPanelOffsetFrame) {
+      return;
+    }
+    rightPanelOffsetFrame = window.requestAnimationFrame(() => {
+      rightPanelOffsetFrame = null;
+      updateRightPanelOffset();
+    });
+  }
+
+  function measurePanelHeight(panel) {
+    if (!panel) {
+      return 0;
+    }
+    if (!panel.hidden) {
+      return panel.getBoundingClientRect().height;
+    }
+    const previousHidden = panel.hidden;
+    const previousVisibility = panel.style.visibility;
+    const previousPointerEvents = panel.style.pointerEvents;
+    panel.hidden = false;
+    panel.style.visibility = "hidden";
+    panel.style.pointerEvents = "none";
+    const height = panel.getBoundingClientRect().height;
+    panel.hidden = previousHidden;
+    panel.style.visibility = previousVisibility;
+    panel.style.pointerEvents = previousPointerEvents;
+    return height;
+  }
+
+  function updateRightPanelOffset() {
+    let offset = 0;
+    if (ui.plateModePanel) {
+      const panelHeight = measurePanelHeight(ui.plateModePanel);
+      offset = Math.round(panelHeight + 14);
+    }
+    document.documentElement.style.setProperty(
+      "--right-secondary-offset",
+      `${offset}px`
     );
   }
 
@@ -2134,12 +2923,22 @@
   }
 
   function handleContinentContextMenu(event) {
+    if (isSurfacePaintTool(state.tool)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (state.tool === "continent") {
+      event.stopPropagation();
       event.preventDefault();
     }
   }
 
   function handleContinentPointerDown(event) {
+    if (isSurfacePaintTool(state.tool)) {
+      handleSurfacePaintPointerDown(event);
+      return;
+    }
     if (state.tool !== "continent") {
       return;
     }
@@ -2155,7 +2954,7 @@
     if (event.button === 2 && state.continentDraft.length > 0) {
       state.continentDraft = [];
       state.continentCursor = null;
-      setMessage("Continent draft cancelled.");
+      setMessage("Craton draft cancelled.");
       render();
       return;
     }
@@ -2241,6 +3040,10 @@
   }
 
   function handleContinentPointerMove(event) {
+    if (isSurfacePaintTool(state.tool)) {
+      handleSurfacePaintPointerMove(event);
+      return;
+    }
     if (state.tool !== "continent") {
       return;
     }
@@ -2309,6 +3112,10 @@
   }
 
   function handleContinentPointerUp(event) {
+    if (isSurfacePaintTool(state.tool)) {
+      handleSurfacePaintPointerUp(event);
+      return;
+    }
     if (state.tool !== "continent") {
       return;
     }
@@ -2327,6 +3134,126 @@
       ui.continentCanvas.style.cursor = "crosshair";
     }
     render();
+  }
+
+  function handleSurfacePaintPointerDown(event) {
+    cancelClearConfirm();
+    if (event.button !== 0 && event.button !== 2) {
+      return;
+    }
+    if (event.button === 2) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    const point = getSvgPointInPage(event, true);
+    if (!point) {
+      return;
+    }
+    const type = getSurfacePaintTypeFromTool(state.tool, event.button);
+    if (!type) {
+      return;
+    }
+    const drag = {
+      paintType: type,
+      lastPoint: point,
+      stamps: [],
+    };
+    state.surfacePaintDrag = drag;
+    addSurfacePaintStamp(point, type, state.surfaceBrushRadius, drag.stamps);
+    if (ui.continentCanvas && ui.continentCanvas.setPointerCapture) {
+      ui.continentCanvas.setPointerCapture(event.pointerId);
+    }
+    if (ui.continentCanvas) {
+      ui.continentCanvas.style.cursor = "crosshair";
+    }
+    render();
+  }
+
+  function handleSurfacePaintPointerMove(event) {
+    if (!state.surfacePaintDrag) {
+      return;
+    }
+    const point = getSvgPointInPage(event, true);
+    if (!point) {
+      return;
+    }
+    const type = state.surfacePaintDrag.paintType;
+    if (!type) {
+      return;
+    }
+    addSurfacePaintSegment(
+      state.surfacePaintDrag.lastPoint,
+      point,
+      type,
+      state.surfaceBrushRadius,
+      state.surfacePaintDrag.stamps
+    );
+    state.surfacePaintDrag.lastPoint = point;
+    render();
+  }
+
+  function handleSurfacePaintPointerUp(event) {
+    if (!state.surfacePaintDrag) {
+      return;
+    }
+    if (ui.continentCanvas && ui.continentCanvas.releasePointerCapture) {
+      try {
+        ui.continentCanvas.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        // Ignore if pointer capture was not set.
+      }
+    }
+    const stamps = state.surfacePaintDrag.stamps || [];
+    if (stamps.length > 0) {
+      if (state.surfacePaintDrag.paintType === "erase") {
+        setMessage("Surface erased.");
+      } else if (state.tool === "paint-continent") {
+        setMessage("Continent paint applied.");
+      } else if (state.tool === "paint-ocean") {
+        setMessage("Ocean paint applied.");
+      }
+    }
+    state.surfacePaintDrag = null;
+    if (ui.continentCanvas) {
+      ui.continentCanvas.style.cursor = "crosshair";
+    }
+    render();
+  }
+
+  function addSurfacePaintSegment(from, to, type, radius, output) {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const length = Math.hypot(dx, dy);
+    if (length <= 0.001) {
+      return;
+    }
+    const step = Math.max(0.9, radius * 0.38);
+    const steps = Math.max(1, Math.ceil(length / step));
+    for (let i = 1; i <= steps; i += 1) {
+      const t = i / steps;
+      addSurfacePaintStamp(
+        {
+          x: from.x + dx * t,
+          y: from.y + dy * t,
+        },
+        type,
+        radius,
+        output
+      );
+    }
+  }
+
+  function addSurfacePaintStamp(point, type, radius, output) {
+    const stamp = {
+      x: clamp(point.x, 0, WIDTH),
+      y: clamp(point.y, 0, HEIGHT),
+      radius: clampSurfaceBrushRadius(radius),
+      type,
+    };
+    state.surfacePaintStamps.push(stamp);
+    if (output) {
+      output.push(cloneSurfaceStamp(stamp));
+    }
   }
 
   function commitContinentDrag() {
@@ -2353,7 +3280,7 @@
     state.continentCursor = point;
     state.selectedContinentId = null;
     state.continentHoverNode = null;
-    setMessage("Click points, then click the first point again to close. Right click cancels.");
+    setMessage("Cratons: click points, then click the first point again to close. Right click cancels.");
   }
 
   function finalizeContinentDraft() {
@@ -2370,7 +3297,7 @@
     selectContinent(piece.id);
     state.continentDraft = [];
     state.continentCursor = null;
-    setMessage("Continent created.");
+    setMessage("Craton created.");
   }
 
   function createContinentPiece(points) {
@@ -2464,7 +3391,7 @@
     }
     state.selectedContinentId = null;
     state.continentHoverNode = null;
-    setMessage("Continent deleted.");
+    setMessage("Craton deleted.");
     return true;
   }
 
@@ -2671,6 +3598,7 @@
     }
     updateOverlayCanvasSize();
     ui.continentCtx.clearRect(0, 0, WIDTH, HEIGHT);
+    drawSurfacePaint(ui.continentCtx);
 
     state.continentPieces.forEach((piece) => {
       const isSelected = piece.id === state.selectedContinentId;
@@ -2687,6 +3615,37 @@
 
     drawContinentDraft(ui.continentCtx);
     updateContinentHint();
+  }
+
+  function drawSurfacePaint(context) {
+    if (!state.surfacePaintStamps.length) {
+      return;
+    }
+    state.surfacePaintStamps.forEach((stamp) => {
+      const fill = surfacePaintColors[stamp.type];
+      const radius = clampSurfaceBrushRadius(stamp.radius || state.surfaceBrushRadius);
+      const left = clamp(stamp.x - radius, 0, WIDTH);
+      const top = clamp(stamp.y - radius, 0, HEIGHT);
+      const right = clamp(stamp.x + radius, 0, WIDTH);
+      const bottom = clamp(stamp.y + radius, 0, HEIGHT);
+
+      context.save();
+      context.beginPath();
+      context.arc(stamp.x, stamp.y, radius, 0, Math.PI * 2);
+      context.clip();
+      context.clearRect(left, top, Math.max(0, right - left), Math.max(0, bottom - top));
+      context.restore();
+
+      if (!fill) {
+        return;
+      }
+      context.save();
+      context.beginPath();
+      context.arc(stamp.x, stamp.y, radius, 0, Math.PI * 2);
+      context.fillStyle = fill;
+      context.fill();
+      context.restore();
+    });
   }
 
   function drawContinentPiece(context, piece, strokeStyle, isSelected) {
@@ -2787,7 +3746,17 @@
         return;
       }
       ui.continentHint.textContent =
-        "Click to add nodes. Close by clicking the first node.";
+        "Cratons: click to add nodes. Close by clicking the first node.";
+      return;
+    }
+    if (state.tool === "paint-continent") {
+      ui.continentHint.textContent =
+        "Paint Continents: drag to paint soft brown zones. Right click draws eraser brush.";
+      return;
+    }
+    if (state.tool === "paint-ocean") {
+      ui.continentHint.textContent =
+        "Paint Oceans: drag to paint soft blue zones. Right click draws eraser brush.";
       return;
     }
     if (state.tool === "crust") {
@@ -2810,12 +3779,31 @@
       return;
     }
     if (state.tool === "pencil") {
-      ui.continentHint.textContent =
-        "Click points to connect in a chain. Use the side turn-around buttons to wrap the next link. Right click or click empty space to stop. Max 3 connections per point.";
+      if (state.plateStyle === PLATE_STYLES.divergent) {
+        ui.continentHint.textContent =
+          "Divergent mode: left click a plate line to convert it to double parallel lines. Right click resets to boundary.";
+      } else if (state.plateStyle === PLATE_STYLES.convergent) {
+        ui.continentHint.textContent =
+          "Convergent mode: left click a plate line to add zigzag. Right click a plate line to reset boundary.";
+      } else if (state.plateStyle === PLATE_STYLES.transform) {
+        ui.continentHint.textContent =
+          "Transform mode: left click a plate line for close parallel lines with opposite arrows. Right click resets to boundary.";
+      } else if (state.plateStyle === PLATE_STYLES.oblique) {
+        ui.continentHint.textContent =
+          "Oblique mode: left click a plate line to add curved zigzag hills. Right click resets to boundary.";
+      } else {
+        ui.continentHint.textContent =
+          "Boundary mode: click points to connect in a chain. Right click a plate line deletes it.";
+      }
       return;
     }
     if (state.tool === "arrow") {
       ui.continentHint.textContent = "Click and drag to draw arrows.";
+      return;
+    }
+    if (state.tool === "divide") {
+      ui.continentHint.textContent =
+        "Click and drag to draw dashed divide lines.";
       return;
     }
     ui.continentHint.textContent = "Select a tool to begin.";
@@ -2835,3 +3823,4 @@
 
   init();
 })();
+
