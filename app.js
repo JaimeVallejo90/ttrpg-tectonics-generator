@@ -24,33 +24,33 @@
   const nodeRadius = Math.min(microW, microH) * 0.18;
   const nodeHitRadius = nodeRadius * 1.9;
   const plateHitRadius = Math.min(microW, microH) * 0.5;
-  const continentFill = "rgba(194, 99, 42, 0.4)";
-  const continentStroke = "rgba(27, 26, 23, 0.85)";
-  const continentStrokeActive = "rgba(194, 99, 42, 0.95)";
-  const draftStroke = "rgba(194, 99, 42, 0.8)";
-  const draftPoint = "rgba(194, 99, 42, 0.9)";
-  const draftPointActive = "rgba(79, 111, 106, 0.9)";
+  const continentFill = "rgba(23, 23, 23, 0.2)";
+  const continentStroke = "rgba(20, 20, 20, 0.9)";
+  const continentStrokeActive = "rgba(7, 7, 7, 0.98)";
+  const draftStroke = "rgba(20, 20, 20, 0.75)";
+  const draftPoint = "rgba(20, 20, 20, 0.85)";
+  const draftPointActive = "rgba(7, 7, 7, 0.98)";
   const surfacePaintColors = {
-    continent: "rgba(176, 108, 63, 0.3)",
-    ocean: "rgba(66, 133, 188, 0.28)",
+    continent: "rgba(20, 20, 20, 0.22)",
+    ocean: "rgba(20, 20, 20, 0.12)",
   };
   const markerHitRadius = Math.min(microW, microH) * 0.45;
   const markerIconSize = Math.min(microW, microH) * 0.75;
   const markerNumberSize = Math.min(microW, microH) * 0.6;
   const volcanoIconSize = Math.min(microW, microH) * 0.55;
   const crustIcons = {
-    ocean: "\u{1F30A}",
-    mixed: "\u{1F3DD}\uFE0F",
-    continent: "\u26F0\uFE0F",
+    ocean: "\u2248",
+    mixed: "\u25D0",
+    continent: "\u25B3",
   };
-  const volcanoIcon = "\u{1F30B}";
+  const volcanoIcon = "\u25B2";
   const directionIcons = {
-    1: "\u2B06\uFE0F",
-    2: "\u2197\uFE0F",
-    3: "\u2198\uFE0F",
-    4: "\u2B07\uFE0F",
-    5: "\u2199\uFE0F",
-    6: "\u2196\uFE0F",
+    1: "\u2191",
+    2: "\u2197",
+    3: "\u2198",
+    4: "\u2193",
+    5: "\u2199",
+    6: "\u2196",
   };
   const directionLabels = {
     1: "N",

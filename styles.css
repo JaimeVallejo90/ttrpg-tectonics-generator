@@ -652,16 +652,16 @@ button:disabled {
 }
 
 .pending-fill {
-  fill: var(--center-fill);
+  fill: rgba(20, 20, 20, 0.14);
 }
 
 .cell-dot {
-  fill: var(--accent);
+  fill: #000;
 }
 
 .plate-node-active {
   fill: none;
-  stroke: var(--accent-alt);
+  stroke: #000;
   stroke-width: 0.9;
   vector-effect: non-scaling-stroke;
 }
@@ -729,8 +729,8 @@ button:disabled {
 }
 
 .marker-text.selected {
-  stroke: var(--accent);
-  stroke-width: 0.9;
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 1.05;
   paint-order: stroke;
 }
 
@@ -777,4 +777,3 @@ button:disabled {
     transition: none !important;
   }
 }
-
