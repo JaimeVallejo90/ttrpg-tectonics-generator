@@ -641,6 +641,47 @@
     return { handled: true };
   }
 
+  function randomBetween(min, max) {
+    return min + Math.random() * (max - min);
+  }
+
+  function createRandomPlateCurve() {
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const roll = Math.random();
+    if (roll < 0.25) {
+      return {
+        mode: "arc",
+        side,
+        strength: randomBetween(0.1, 0.18),
+        bias: randomBetween(-0.14, 0.14),
+      };
+    }
+    if (roll < 0.5) {
+      return {
+        mode: "arc",
+        side,
+        strength: randomBetween(0.22, 0.36),
+        bias: randomBetween(-0.2, 0.2),
+      };
+    }
+    if (roll < 0.75) {
+      return {
+        mode: "s",
+        side,
+        strength: randomBetween(0.1, 0.18),
+        split: randomBetween(0.3, 0.4),
+        skew: randomBetween(0.75, 1.15),
+      };
+    }
+    return {
+      mode: "s",
+      side,
+      strength: randomBetween(0.18, 0.3),
+      split: randomBetween(0.28, 0.42),
+      skew: randomBetween(0.7, 1.25),
+    };
+  }
+
   function addPlateConnection(start, end, wrapSide, plateStyle = PLATE_STYLES.boundary) {
     const line = {
       x1: start.x,
@@ -654,6 +695,7 @@
       plateStyle: Object.values(PLATE_STYLES).includes(plateStyle)
         ? plateStyle
         : PLATE_STYLES.boundary,
+      curve: createRandomPlateCurve(),
     };
     state.lines.push(line);
     recordHistory({
@@ -682,6 +724,248 @@
     ];
   }
 
+  function getPlateCurveDefinition(segment, curve) {
+    if (!curve) {
+      return null;
+    }
+    const dx = segment.x2 - segment.x1;
+    const dy = segment.y2 - segment.y1;
+    const length = Math.hypot(dx, dy);
+    if (length <= 0.0001) {
+      return null;
+    }
+    const nx = -dy / length;
+    const ny = dx / length;
+    const side = curve.side === -1 ? -1 : 1;
+    const strength = clamp(Number(curve.strength) || 0.18, 0.05, 0.42);
+    const amplitude = length * strength;
+    const mode = curve.mode === "s" ? "s" : "arc";
+    if (mode === "s") {
+      const split = clamp(Number(curve.split) || 0.35, 0.2, 0.45);
+      const skew = clamp(Number(curve.skew) || 1, 0.6, 1.4);
+      const t1 = split;
+      const t2 = 1 - split;
+      const base1X = segment.x1 + dx * t1;
+      const base1Y = segment.y1 + dy * t1;
+      const base2X = segment.x1 + dx * t2;
+      const base2Y = segment.y1 + dy * t2;
+      return {
+        mode,
+        c1: {
+          x: base1X + nx * amplitude * side,
+          y: base1Y + ny * amplitude * side,
+        },
+        c2: {
+          x: base2X - nx * amplitude * side * skew,
+          y: base2Y - ny * amplitude * side * skew,
+        },
+      };
+    }
+    const bias = clamp(Number(curve.bias) || 0, -0.22, 0.22);
+    const t = clamp(0.5 + bias, 0.2, 0.8);
+    const baseX = segment.x1 + dx * t;
+    const baseY = segment.y1 + dy * t;
+    return {
+      mode,
+      c1: {
+        x: baseX + nx * amplitude * side,
+        y: baseY + ny * amplitude * side,
+      },
+    };
+  }
+
+  function evaluatePlateCurvePoint(segment, definition, t) {
+    const oneMinus = 1 - t;
+    if (!definition || definition.mode === "line") {
+      return {
+        x: segment.x1 + (segment.x2 - segment.x1) * t,
+        y: segment.y1 + (segment.y2 - segment.y1) * t,
+      };
+    }
+    if (definition.mode === "s") {
+      const c1 = definition.c1;
+      const c2 = definition.c2;
+      const x =
+        oneMinus * oneMinus * oneMinus * segment.x1 +
+        3 * oneMinus * oneMinus * t * c1.x +
+        3 * oneMinus * t * t * c2.x +
+        t * t * t * segment.x2;
+      const y =
+        oneMinus * oneMinus * oneMinus * segment.y1 +
+        3 * oneMinus * oneMinus * t * c1.y +
+        3 * oneMinus * t * t * c2.y +
+        t * t * t * segment.y2;
+      return { x, y };
+    }
+    const c1 = definition.c1;
+    const x =
+      oneMinus * oneMinus * segment.x1 +
+      2 * oneMinus * t * c1.x +
+      t * t * segment.x2;
+    const y =
+      oneMinus * oneMinus * segment.y1 +
+      2 * oneMinus * t * c1.y +
+      t * t * segment.y2;
+    return { x, y };
+  }
+
+  function buildPlateCurvePathData(segment, curve) {
+    const definition = getPlateCurveDefinition(segment, curve);
+    if (!definition) {
+      return `M ${segment.x1.toFixed(2)} ${segment.y1.toFixed(2)} L ${segment.x2.toFixed(
+        2
+      )} ${segment.y2.toFixed(2)}`;
+    }
+    if (definition.mode === "s") {
+      return `M ${segment.x1.toFixed(2)} ${segment.y1.toFixed(2)} C ${definition.c1.x.toFixed(
+        2
+      )} ${definition.c1.y.toFixed(2)} ${definition.c2.x.toFixed(2)} ${definition.c2.y.toFixed(
+        2
+      )} ${segment.x2.toFixed(2)} ${segment.y2.toFixed(2)}`;
+    }
+    return `M ${segment.x1.toFixed(2)} ${segment.y1.toFixed(2)} Q ${definition.c1.x.toFixed(
+      2
+    )} ${definition.c1.y.toFixed(2)} ${segment.x2.toFixed(2)} ${segment.y2.toFixed(2)}`;
+  }
+
+  function buildPlateCurveHitSegments(segment, curve) {
+    const definition = getPlateCurveDefinition(segment, curve);
+    if (!definition) {
+      return [segment];
+    }
+    const steps = definition.mode === "s" ? 18 : 12;
+    const result = [];
+    let previous = { x: segment.x1, y: segment.y1 };
+    for (let i = 1; i <= steps; i += 1) {
+      const t = i / steps;
+      const current = evaluatePlateCurvePoint(segment, definition, t);
+      result.push({
+        x1: previous.x,
+        y1: previous.y,
+        x2: current.x,
+        y2: current.y,
+      });
+      previous = current;
+    }
+    return result;
+  }
+
+  function buildPlateCurvePoints(segment, curve) {
+    const definition = getPlateCurveDefinition(segment, curve);
+    if (!definition) {
+      return [
+        { x: segment.x1, y: segment.y1 },
+        { x: segment.x2, y: segment.y2 },
+      ];
+    }
+    const steps = definition.mode === "s" ? 26 : 18;
+    const points = [{ x: segment.x1, y: segment.y1 }];
+    for (let i = 1; i < steps; i += 1) {
+      points.push(evaluatePlateCurvePoint(segment, definition, i / steps));
+    }
+    points.push({ x: segment.x2, y: segment.y2 });
+    return points;
+  }
+
+  function buildPolylinePathData(points) {
+    if (!points || points.length === 0) {
+      return "";
+    }
+    const commands = points.map(
+      (point, index) =>
+        `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`
+    );
+    return commands.join(" ");
+  }
+
+  function reversePoints(points) {
+    return points
+      .slice()
+      .reverse()
+      .map((point) => ({ x: point.x, y: point.y }));
+  }
+
+  function buildPolylineMetrics(points) {
+    const cumulative = [0];
+    let total = 0;
+    for (let i = 1; i < points.length; i += 1) {
+      total += Math.hypot(
+        points[i].x - points[i - 1].x,
+        points[i].y - points[i - 1].y
+      );
+      cumulative.push(total);
+    }
+    return { cumulative, total };
+  }
+
+  function samplePolylineAtDistance(points, metrics, distance) {
+    if (!points || points.length === 0) {
+      return null;
+    }
+    if (points.length === 1 || metrics.total <= 0.0001) {
+      return { x: points[0].x, y: points[0].y, nx: 0, ny: -1 };
+    }
+    const target = clamp(distance, 0, metrics.total);
+    let index = 0;
+    while (
+      index < metrics.cumulative.length - 2 &&
+      metrics.cumulative[index + 1] < target
+    ) {
+      index += 1;
+    }
+    const start = points[index];
+    const end = points[index + 1] || start;
+    const startDistance = metrics.cumulative[index];
+    const endDistance = metrics.cumulative[index + 1] ?? startDistance;
+    const segmentLength = endDistance - startDistance;
+    const t =
+      segmentLength > 0.0001 ? (target - startDistance) / segmentLength : 0;
+    const x = start.x + (end.x - start.x) * t;
+    const y = start.y + (end.y - start.y) * t;
+    let dx = end.x - start.x;
+    let dy = end.y - start.y;
+    let length = Math.hypot(dx, dy);
+    if (length <= 0.0001) {
+      const previous = points[Math.max(0, index - 1)];
+      const next = points[Math.min(points.length - 1, index + 2)];
+      dx = next.x - previous.x;
+      dy = next.y - previous.y;
+      length = Math.hypot(dx, dy);
+    }
+    if (length <= 0.0001) {
+      return { x, y, nx: 0, ny: -1 };
+    }
+    return { x, y, nx: -dy / length, ny: dx / length };
+  }
+
+  function offsetPolylinePoints(points, offset) {
+    if (!points || points.length === 0) {
+      return [];
+    }
+    if (points.length === 1 || Math.abs(offset) <= 0.0001) {
+      return points.map((point) => ({ x: point.x, y: point.y }));
+    }
+    const result = [];
+    for (let i = 0; i < points.length; i += 1) {
+      const previous = points[Math.max(0, i - 1)];
+      const next = points[Math.min(points.length - 1, i + 1)];
+      let dx = next.x - previous.x;
+      let dy = next.y - previous.y;
+      let length = Math.hypot(dx, dy);
+      if (length <= 0.0001) {
+        result.push({ x: points[i].x, y: points[i].y });
+        continue;
+      }
+      const nx = -dy / length;
+      const ny = dx / length;
+      result.push({
+        x: points[i].x + nx * offset,
+        y: points[i].y + ny * offset,
+      });
+    }
+    return result;
+  }
+
   function getLineSegments(line) {
     const lineType = line.lineType || "plate";
     if (lineType !== "plate") {
@@ -696,97 +980,81 @@
     );
   }
 
-  function buildParallelSegments(segment, offset) {
-    const dx = segment.x2 - segment.x1;
-    const dy = segment.y2 - segment.y1;
-    const length = Math.hypot(dx, dy);
-    if (length <= 0.0001) {
-      return [segment, segment];
+  function getLineHitSegments(line) {
+    const segments = getLineSegments(line);
+    if ((line.lineType || "plate") !== "plate") {
+      return segments;
     }
-    const nx = -dy / length;
-    const ny = dx / length;
-    return [
-      {
-        x1: segment.x1 + nx * offset,
-        y1: segment.y1 + ny * offset,
-        x2: segment.x2 + nx * offset,
-        y2: segment.y2 + ny * offset,
-      },
-      {
-        x1: segment.x1 - nx * offset,
-        y1: segment.y1 - ny * offset,
-        x2: segment.x2 - nx * offset,
-        y2: segment.y2 - ny * offset,
-      },
-    ];
+    if (!line.curve) {
+      return segments;
+    }
+    return segments.flatMap((segment) => buildPlateCurveHitSegments(segment, line.curve));
   }
 
-  function buildConvergentPathData(segment) {
-    const dx = segment.x2 - segment.x1;
-    const dy = segment.y2 - segment.y1;
-    const length = Math.hypot(dx, dy);
+  function buildConvergentPathData(segment, curve = null) {
+    const basePoints = buildPlateCurvePoints(segment, curve);
+    const metrics = buildPolylineMetrics(basePoints);
+    const length = metrics.total;
     if (length <= 0.0001) {
-      return `M ${segment.x1.toFixed(2)} ${segment.y1.toFixed(2)} L ${segment.x2.toFixed(
-        2
-      )} ${segment.y2.toFixed(2)}`;
+      return buildPolylinePathData(basePoints);
     }
-    const ux = dx / length;
-    const uy = dy / length;
-    const nx = -uy;
-    const ny = ux;
     const amplitude = Math.min(microW, microH) * 0.22;
     const step = Math.min(microW, microH) * 0.4;
     const waveCount = Math.max(2, Math.floor(length / step));
-    const points = [];
-    points.push({ x: segment.x1, y: segment.y1 });
+    const points = [{ x: basePoints[0].x, y: basePoints[0].y }];
     for (let i = 1; i < waveCount; i += 1) {
-      const t = i / waveCount;
-      const baseX = segment.x1 + dx * t;
-      const baseY = segment.y1 + dy * t;
+      const sample = samplePolylineAtDistance(
+        basePoints,
+        metrics,
+        (length * i) / waveCount
+      );
+      if (!sample) {
+        continue;
+      }
       const direction = i % 2 === 0 ? -1 : 1;
       points.push({
-        x: baseX + nx * amplitude * direction,
-        y: baseY + ny * amplitude * direction,
+        x: sample.x + sample.nx * amplitude * direction,
+        y: sample.y + sample.ny * amplitude * direction,
       });
     }
-    points.push({ x: segment.x2, y: segment.y2 });
-    const commands = points.map((point, index) =>
-      `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`
-    );
-    return commands.join(" ");
+    points.push({
+      x: basePoints[basePoints.length - 1].x,
+      y: basePoints[basePoints.length - 1].y,
+    });
+    return buildPolylinePathData(points);
   }
 
-  function buildObliquePathData(segment) {
-    const dx = segment.x2 - segment.x1;
-    const dy = segment.y2 - segment.y1;
-    const length = Math.hypot(dx, dy);
+  function buildObliquePathData(segment, curve = null) {
+    const basePoints = buildPlateCurvePoints(segment, curve);
+    const metrics = buildPolylineMetrics(basePoints);
+    const length = metrics.total;
     if (length <= 0.0001) {
-      return `M ${segment.x1.toFixed(2)} ${segment.y1.toFixed(2)} L ${segment.x2.toFixed(
-        2
-      )} ${segment.y2.toFixed(2)}`;
+      return buildPolylinePathData(basePoints);
     }
-    const ux = dx / length;
-    const uy = dy / length;
-    const nx = -uy;
-    const ny = ux;
     const amplitude = Math.min(microW, microH) * 0.16;
     const step = Math.min(microW, microH) * 0.48;
     const waveCount = Math.max(2, Math.floor(length / step));
-    const commands = [
-      `M ${segment.x1.toFixed(2)} ${segment.y1.toFixed(2)}`,
-    ];
+    const start = basePoints[0];
+    const commands = [`M ${start.x.toFixed(2)} ${start.y.toFixed(2)}`];
     for (let i = 1; i <= waveCount; i += 1) {
-      const t = i / waveCount;
-      const endX = segment.x1 + dx * t;
-      const endY = segment.y1 + dy * t;
-      const midT = (i - 0.5) / waveCount;
-      const baseMidX = segment.x1 + dx * midT;
-      const baseMidY = segment.y1 + dy * midT;
+      const end = samplePolylineAtDistance(
+        basePoints,
+        metrics,
+        (length * i) / waveCount
+      );
+      const mid = samplePolylineAtDistance(
+        basePoints,
+        metrics,
+        (length * (i - 0.5)) / waveCount
+      );
+      if (!end || !mid) {
+        continue;
+      }
       const direction = i % 2 === 0 ? -1 : 1;
-      const ctrlX = baseMidX + nx * amplitude * direction;
-      const ctrlY = baseMidY + ny * amplitude * direction;
+      const ctrlX = mid.x + mid.nx * amplitude * direction;
+      const ctrlY = mid.y + mid.ny * amplitude * direction;
       commands.push(
-        `Q ${ctrlX.toFixed(2)} ${ctrlY.toFixed(2)} ${endX.toFixed(2)} ${endY.toFixed(2)}`
+        `Q ${ctrlX.toFixed(2)} ${ctrlY.toFixed(2)} ${end.x.toFixed(2)} ${end.y.toFixed(2)}`
       );
     }
     return commands.join(" ");
@@ -1621,7 +1889,7 @@
       if (filterFn && !filterFn(line, index)) {
         return;
       }
-      const segments = getLineSegments(line);
+      const segments = getLineHitSegments(line);
       let distSq = Infinity;
       segments.forEach((segment) => {
         const candidate = distanceToSegmentSquared(x, y, segment);
@@ -2710,65 +2978,60 @@
       }
       const plateStyle = getPlateLineStyle(line);
       segments.forEach((segment) => {
+        const curvePoints = buildPlateCurvePoints(segment, line.curve);
+        const basePathData = buildPlateCurvePathData(segment, line.curve);
         if (
           plateStyle === PLATE_STYLES.divergent ||
           plateStyle === PLATE_STYLES.transform
         ) {
-          const parallelSegments = buildParallelSegments(
-            segment,
+          const offset =
             Math.min(microW, microH) *
-              (plateStyle === PLATE_STYLES.transform ? 0.12 : 0.19)
+            (plateStyle === PLATE_STYLES.transform ? 0.12 : 0.19);
+          const forwardPath = buildPolylinePathData(
+            offsetPolylinePoints(curvePoints, offset)
           );
-          parallelSegments.forEach((parallel, index) => {
-            if (plateStyle === PLATE_STYLES.transform) {
-              const directed =
-                index === 0
-                  ? parallel
-                  : {
-                      x1: parallel.x2,
-                      y1: parallel.y2,
-                      x2: parallel.x1,
-                      y2: parallel.y1,
-                    };
-              parts.push(
-                `<line class="pencil-line plate-transform" marker-end="url(#arrow-head)" x1="${directed.x1.toFixed(
-                  2
-                )}" y1="${directed.y1.toFixed(2)}" x2="${directed.x2.toFixed(
-                  2
-                )}" y2="${directed.y2.toFixed(2)}" />`
-              );
-              return;
-            }
+          const backwardBase = offsetPolylinePoints(curvePoints, -offset);
+          if (plateStyle === PLATE_STYLES.transform) {
             parts.push(
-              `<line class="pencil-line plate-divergent" x1="${parallel.x1.toFixed(
-                2
-              )}" y1="${parallel.y1.toFixed(2)}" x2="${parallel.x2.toFixed(
-                2
-              )}" y2="${parallel.y2.toFixed(2)}" />`
+              `<path class="pencil-line plate-transform" fill="none" marker-end="url(#arrow-head)" d="${forwardPath}" />`
             );
-          });
+            parts.push(
+              `<path class="pencil-line plate-transform" fill="none" marker-end="url(#arrow-head)" d="${buildPolylinePathData(
+                reversePoints(backwardBase)
+              )}" />`
+            );
+            return;
+          }
+          parts.push(
+            `<path class="pencil-line plate-divergent" fill="none" d="${forwardPath}" />`
+          );
+          parts.push(
+            `<path class="pencil-line plate-divergent" fill="none" d="${buildPolylinePathData(
+              backwardBase
+            )}" />`
+          );
           return;
         }
         parts.push(
-          `<line class="${
+          `<path class="${
             plateStyle === PLATE_STYLES.convergent ||
             plateStyle === PLATE_STYLES.oblique
               ? "pencil-line plate-convergent-base"
               : "pencil-line plate-boundary"
-          }" x1="${segment.x1.toFixed(2)}" y1="${segment.y1.toFixed(
-            2
-          )}" x2="${segment.x2.toFixed(2)}" y2="${segment.y2.toFixed(2)}" />`
+          }" fill="none" d="${basePathData}" />`
         );
         if (plateStyle === PLATE_STYLES.convergent) {
           parts.push(
             `<path class="pencil-line plate-convergent-zigzag" fill="none" d="${buildConvergentPathData(
-              segment
+              segment,
+              line.curve
             )}" />`
           );
         } else if (plateStyle === PLATE_STYLES.oblique) {
           parts.push(
             `<path class="pencil-line plate-oblique-curve" fill="none" d="${buildObliquePathData(
-              segment
+              segment,
+              line.curve
             )}" />`
           );
         }
