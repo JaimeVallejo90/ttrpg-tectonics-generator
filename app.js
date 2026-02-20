@@ -18,7 +18,7 @@
   const innerTop = 0;
   const microW = cellW;
   const microH = cellH;
-  const dotRadius = Math.min(microW, microH) * 0.12;
+  const dotRadius = Math.min(microW, microH) * 0.105;
   const draftPointRadius = Math.min(microW, microH) * 0.14;
   const closeDistance = Math.min(microW, microH) * 0.6;
   const nodeRadius = Math.min(microW, microH) * 0.18;
@@ -64,7 +64,6 @@
     boundary: "boundary",
     divergent: "divergent",
     convergent: "convergent",
-    transform: "transform",
     oblique: "oblique",
   };
   const DEFAULT_SURFACE_BRUSH_RADIUS = 4;
@@ -158,7 +157,6 @@
     ui.plateBoundaryBtn = document.getElementById("plate-boundary-btn");
     ui.plateDivergentBtn = document.getElementById("plate-divergent-btn");
     ui.plateConvergentBtn = document.getElementById("plate-convergent-btn");
-    ui.plateTransformBtn = document.getElementById("plate-transform-btn");
     ui.plateObliqueBtn = document.getElementById("plate-oblique-btn");
     ui.plateModeHint = document.getElementById("plate-mode-hint");
     ui.surfacePaintPanel = document.getElementById("surface-paint-panel");
@@ -241,11 +239,6 @@
     if (ui.plateConvergentBtn) {
       ui.plateConvergentBtn.addEventListener("click", () =>
         setPlateStyle(PLATE_STYLES.convergent)
-      );
-    }
-    if (ui.plateTransformBtn) {
-      ui.plateTransformBtn.addEventListener("click", () =>
-        setPlateStyle(PLATE_STYLES.transform)
       );
     }
     if (ui.plateObliqueBtn) {
@@ -943,9 +936,6 @@
     if (style === PLATE_STYLES.convergent) {
       return "Convergent";
     }
-    if (style === PLATE_STYLES.transform) {
-      return "Transform";
-    }
     if (style === PLATE_STYLES.oblique) {
       return "Oblique";
     }
@@ -1022,7 +1012,26 @@
     if (!line || (line.lineType || "plate") !== "plate") {
       return PLATE_STYLES.boundary;
     }
-    return line.plateStyle || PLATE_STYLES.boundary;
+    if (Object.values(PLATE_STYLES).includes(line.plateStyle)) {
+      return line.plateStyle;
+    }
+    return PLATE_STYLES.boundary;
+  }
+
+  function getDivergentOffsetDirection(line) {
+    if (line && (line.divergentSide === -1 || line.divergentSide === 1)) {
+      return line.divergentSide;
+    }
+    const startKey = String((line && line.startKey) || "");
+    const endKey = String((line && line.endKey) || "");
+    const key = startKey <= endKey
+      ? `${startKey}|${endKey}`
+      : `${endKey}|${startKey}`;
+    let hash = 0;
+    for (let i = 0; i < key.length; i += 1) {
+      hash = (hash * 31 + key.charCodeAt(i)) & 0x7fffffff;
+    }
+    return hash % 2 === 0 ? 1 : -1;
   }
 
   function findPlateConnection(keyA, keyB) {
@@ -1059,6 +1068,13 @@
       return false;
     }
     connection.line.plateStyle = targetStyle;
+    if (
+      targetStyle === PLATE_STYLES.divergent &&
+      connection.line.divergentSide !== -1 &&
+      connection.line.divergentSide !== 1
+    ) {
+      connection.line.divergentSide = Math.random() < 0.5 ? -1 : 1;
+    }
     recordHistory({
       type: "line-update",
       index: connection.index,
@@ -1110,40 +1126,95 @@
   }
 
   function createRandomPlateCurve() {
-    const side = Math.random() < 0.5 ? -1 : 1;
-    const roll = Math.random();
-    if (roll < 0.25) {
-      return {
-        mode: "arc",
-        side,
-        strength: randomBetween(0.1, 0.18),
-        bias: randomBetween(-0.14, 0.14),
-      };
-    }
-    if (roll < 0.5) {
-      return {
-        mode: "arc",
-        side,
-        strength: randomBetween(0.22, 0.36),
-        bias: randomBetween(-0.2, 0.2),
-      };
-    }
-    if (roll < 0.75) {
-      return {
-        mode: "s",
-        side,
-        strength: randomBetween(0.1, 0.18),
-        split: randomBetween(0.3, 0.4),
-        skew: randomBetween(0.75, 1.15),
-      };
+    const knotCount = Math.floor(randomBetween(2, 6));
+    const persistence = randomBetween(0.36, 0.72);
+    const nodes = [];
+    let previousNormal = randomBetween(-1, 1);
+    for (let i = 0; i < knotCount; i += 1) {
+      const keepDirection = i > 0 && Math.random() < persistence;
+      let normal = keepDirection
+        ? previousNormal + randomBetween(-0.34, 0.34)
+        : randomBetween(-1, 1);
+      normal = clamp(normal, -1, 1);
+      previousNormal = normal;
+      nodes.push({
+        t: randomBetween(-0.22, 0.22),
+        n: normal,
+        a: randomBetween(-1, 1),
+      });
     }
     return {
-      mode: "s",
-      side,
-      strength: randomBetween(0.18, 0.3),
-      split: randomBetween(0.28, 0.42),
-      skew: randomBetween(0.7, 1.25),
+      mode: "tectonic",
+      knotCount,
+      roughness: randomBetween(0.028, 0.1),
+      broadBend: randomBetween(-0.2, 0.2),
+      alongScale: randomBetween(0.005, 0.055),
+      nodes,
     };
+  }
+
+  function buildTectonicCurvePoints(segment, curve) {
+    const dx = segment.x2 - segment.x1;
+    const dy = segment.y2 - segment.y1;
+    const length = Math.hypot(dx, dy);
+    if (length <= 0.0001) {
+      return [
+        { x: segment.x1, y: segment.y1 },
+        { x: segment.x2, y: segment.y2 },
+      ];
+    }
+    const tx = dx / length;
+    const ty = dy / length;
+    const nx = -ty;
+    const ny = tx;
+    const knotCount = clamp(Math.round(Number(curve.knotCount) || 3), 2, 6);
+    const roughness = clamp(Number(curve.roughness) || 0.06, 0.012, 0.15);
+    const broadBend = clamp(Number(curve.broadBend) || 0, -0.34, 0.34);
+    const alongScale = clamp(Number(curve.alongScale) || 0.03, 0, 0.09);
+    const nodes = Array.isArray(curve.nodes) ? curve.nodes : [];
+    const points = [{ x: segment.x1, y: segment.y1 }];
+    let previousT = 0;
+
+    for (let i = 1; i <= knotCount; i += 1) {
+      const node = nodes[i - 1] || {};
+      const baseT = i / (knotCount + 1);
+      const jitter = clamp(Number(node.t) || 0, -0.32, 0.32);
+      let t = baseT + jitter / (knotCount + 1);
+      const minT = previousT + 0.06;
+      const remaining = knotCount - i + 1;
+      const maxT = 1 - remaining * 0.05;
+      t = clamp(t, minT, maxT);
+      previousT = t;
+
+      const broadWave = Math.sin(t * Math.PI);
+      const localNormal = clamp(Number(node.n) || 0, -1, 1);
+      const localAlong = clamp(Number(node.a) || 0, -1, 1);
+      const normalOffset = length * (broadBend * broadWave + localNormal * roughness);
+      const alongOffset = length * localAlong * alongScale;
+      points.push({
+        x: segment.x1 + dx * t + nx * normalOffset + tx * alongOffset,
+        y: segment.y1 + dy * t + ny * normalOffset + ty * alongOffset,
+      });
+    }
+
+    points.push({ x: segment.x2, y: segment.y2 });
+    return points;
+  }
+
+  function buildSegmentsFromPoints(points) {
+    if (!points || points.length < 2) {
+      return [];
+    }
+    const result = [];
+    for (let i = 1; i < points.length; i += 1) {
+      result.push({
+        x1: points[i - 1].x,
+        y1: points[i - 1].y,
+        x2: points[i].x,
+        y2: points[i].y,
+      });
+    }
+    return result;
   }
 
   function addPlateConnection(start, end, wrapSide, plateStyle = PLATE_STYLES.boundary) {
@@ -1274,6 +1345,9 @@
   }
 
   function buildPlateCurvePathData(segment, curve) {
+    if (curve && curve.mode === "tectonic") {
+      return buildPolylinePathData(buildTectonicCurvePoints(segment, curve));
+    }
     const definition = getPlateCurveDefinition(segment, curve);
     if (!definition) {
       return `M ${segment.x1.toFixed(2)} ${segment.y1.toFixed(2)} L ${segment.x2.toFixed(
@@ -1293,6 +1367,9 @@
   }
 
   function buildPlateCurveHitSegments(segment, curve) {
+    if (curve && curve.mode === "tectonic") {
+      return buildSegmentsFromPoints(buildTectonicCurvePoints(segment, curve));
+    }
     const definition = getPlateCurveDefinition(segment, curve);
     if (!definition) {
       return [segment];
@@ -1315,6 +1392,9 @@
   }
 
   function buildPlateCurvePoints(segment, curve) {
+    if (curve && curve.mode === "tectonic") {
+      return buildTectonicCurvePoints(segment, curve);
+    }
     const definition = getPlateCurveDefinition(segment, curve);
     if (!definition) {
       return [
@@ -1340,13 +1420,6 @@
         `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`
     );
     return commands.join(" ");
-  }
-
-  function reversePoints(points) {
-    return points
-      .slice()
-      .reverse()
-      .map((point) => ({ x: point.x, y: point.y }));
   }
 
   function buildPolylineMetrics(points) {
@@ -3318,11 +3391,6 @@
       ui.plateConvergentBtn.setAttribute("aria-pressed", selected);
       ui.plateConvergentBtn.classList.toggle("active", selected);
     }
-    if (ui.plateTransformBtn) {
-      const selected = state.plateStyle === PLATE_STYLES.transform;
-      ui.plateTransformBtn.setAttribute("aria-pressed", selected);
-      ui.plateTransformBtn.classList.toggle("active", selected);
-    }
     if (ui.plateObliqueBtn) {
       const selected = state.plateStyle === PLATE_STYLES.oblique;
       ui.plateObliqueBtn.setAttribute("aria-pressed", selected);
@@ -3331,13 +3399,10 @@
     if (ui.plateModeHint) {
       if (state.plateStyle === PLATE_STYLES.divergent) {
         ui.plateModeHint.textContent =
-          "Left click a boundary line to convert it into double parallel lines. Right click resets any plate line to boundary.";
+          "Left click a boundary line to keep the main line and add one parallel line on one side. Right click resets any plate line to boundary.";
       } else if (state.plateStyle === PLATE_STYLES.convergent) {
         ui.plateModeHint.textContent =
           "Left click a boundary line to add a convergent zigzag line. Right click resets any plate line to boundary.";
-      } else if (state.plateStyle === PLATE_STYLES.transform) {
-        ui.plateModeHint.textContent =
-          "Left click a boundary line to convert it into close parallel lines with opposite arrows. Right click resets any plate line to boundary.";
       } else if (state.plateStyle === PLATE_STYLES.oblique) {
         ui.plateModeHint.textContent =
           "Left click a boundary line to add an oblique curved zigzag. Right click resets any plate line to boundary.";
@@ -3407,9 +3472,14 @@
     const arrowSize = Math.min(microW, microH) * 0.3;
     const arrowSizeText = arrowSize.toFixed(2);
     const arrowHalfText = (arrowSize / 2).toFixed(2);
+    const arrowTailXText = Math.max(0.7, arrowSize * 0.16).toFixed(2);
+    const arrowTopText = Math.max(0.7, arrowSize * 0.16).toFixed(2);
+    const arrowBottomText = (arrowSize - Math.max(0.7, arrowSize * 0.16)).toFixed(2);
+    const arrowTipXText = (arrowSize - Math.max(0.6, arrowSize * 0.1)).toFixed(2);
+    const arrowStrokeText = Math.max(0.75, arrowSize * 0.17).toFixed(2);
 
     parts.push(
-      `<defs><marker id="arrow-head" markerUnits="userSpaceOnUse" markerWidth="${arrowSizeText}" markerHeight="${arrowSizeText}" viewBox="0 0 ${arrowSizeText} ${arrowSizeText}" refX="${arrowSizeText}" refY="${arrowHalfText}" orient="auto"><path d="M 0 0 L ${arrowSizeText} ${arrowHalfText} L 0 ${arrowSizeText} z" fill="var(--ink)" /></marker></defs>`
+      `<defs><marker id="arrow-head" markerUnits="userSpaceOnUse" markerWidth="${arrowSizeText}" markerHeight="${arrowSizeText}" viewBox="0 0 ${arrowSizeText} ${arrowSizeText}" refX="${arrowSizeText}" refY="${arrowHalfText}" orient="auto"><path d="M ${arrowTailXText} ${arrowTopText} L ${arrowTipXText} ${arrowHalfText} L ${arrowTailXText} ${arrowBottomText}" fill="none" stroke="var(--ink)" stroke-width="${arrowStrokeText}" stroke-linecap="round" stroke-linejoin="round" /></marker></defs>`
     );
 
     for (let i = 1; i < GRID; i += 1) {
@@ -3459,35 +3529,17 @@
       segments.forEach((segment) => {
         const curvePoints = buildPlateCurvePoints(segment, line.curve);
         const basePathData = buildPlateCurvePathData(segment, line.curve);
-        if (
-          plateStyle === PLATE_STYLES.divergent ||
-          plateStyle === PLATE_STYLES.transform
-        ) {
-          const offset =
-            Math.min(microW, microH) *
-            (plateStyle === PLATE_STYLES.transform ? 0.12 : 0.19);
-          const forwardPath = buildPolylinePathData(
-            offsetPolylinePoints(curvePoints, offset)
-          );
-          const backwardBase = offsetPolylinePoints(curvePoints, -offset);
-          if (plateStyle === PLATE_STYLES.transform) {
-            parts.push(
-              `<path class="pencil-line plate-transform" fill="none" marker-end="url(#arrow-head)" d="${forwardPath}" />`
-            );
-            parts.push(
-              `<path class="pencil-line plate-transform" fill="none" marker-end="url(#arrow-head)" d="${buildPolylinePathData(
-                reversePoints(backwardBase)
-              )}" />`
-            );
-            return;
-          }
-          parts.push(
-            `<path class="pencil-line plate-divergent" fill="none" d="${forwardPath}" />`
+        if (plateStyle === PLATE_STYLES.divergent) {
+          const offset = Math.min(microW, microH) * 0.19;
+          const side = getDivergentOffsetDirection(line);
+          const parallelPath = buildPolylinePathData(
+            offsetPolylinePoints(curvePoints, offset * side)
           );
           parts.push(
-            `<path class="pencil-line plate-divergent" fill="none" d="${buildPolylinePathData(
-              backwardBase
-            )}" />`
+            `<path class="pencil-line plate-boundary" fill="none" d="${basePathData}" />`
+          );
+          parts.push(
+            `<path class="pencil-line plate-divergent" fill="none" d="${parallelPath}" />`
           );
           return;
         }
@@ -4648,13 +4700,10 @@
     if (state.tool === "pencil") {
       if (state.plateStyle === PLATE_STYLES.divergent) {
         ui.continentHint.textContent =
-          "Divergent mode: left click a plate line to convert it to double parallel lines. Right click resets to boundary.";
+          "Divergent mode: left click a plate line to keep the main line and add one parallel line. Right click resets to boundary.";
       } else if (state.plateStyle === PLATE_STYLES.convergent) {
         ui.continentHint.textContent =
           "Convergent mode: left click a plate line to add zigzag. Right click a plate line to reset boundary.";
-      } else if (state.plateStyle === PLATE_STYLES.transform) {
-        ui.continentHint.textContent =
-          "Transform mode: left click a plate line for close parallel lines with opposite arrows. Right click resets to boundary.";
       } else if (state.plateStyle === PLATE_STYLES.oblique) {
         ui.continentHint.textContent =
           "Oblique mode: left click a plate line to add curved zigzag hills. Right click resets to boundary.";

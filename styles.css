@@ -701,8 +701,8 @@ button:disabled {
 }
 
 .pencil-line.plate-convergent-base {
-  stroke: rgba(14, 12, 10, 0.95);
-  stroke-width: 0.76;
+  stroke: rgba(29, 26, 22, 0.6);
+  stroke-width: 0.43;
 }
 
 .pencil-line.plate-convergent-zigzag {
@@ -715,11 +715,6 @@ button:disabled {
   fill: none;
   stroke: rgba(14, 12, 10, 0.97);
   stroke-width: 0.72;
-}
-
-.pencil-line.plate-transform {
-  stroke: rgba(14, 12, 10, 0.98);
-  stroke-width: 0.74;
 }
 
 .arrow-line {
