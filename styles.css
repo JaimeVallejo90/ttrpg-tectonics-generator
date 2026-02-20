@@ -23,7 +23,7 @@
   --font-head: "Fraunces", "Times New Roman", serif;
   --font-body: "Space Grotesk", "Segoe UI", sans-serif;
   --side-control-width: 2rem;
-  --side-control-gap: 2rem;
+  --side-control-gap: 0.15rem;
   --header-offset: 0px;
   --right-secondary-offset: 0px;
   --right-tertiary-offset: 0px;
@@ -441,7 +441,6 @@ body {
   display: flex;
   justify-content: center;
   width: 100%;
-  max-width: 1050px;
   margin: 0 auto;
   padding: 0.4rem;
   border-radius: 0;
@@ -513,21 +512,6 @@ body {
   flex: 1;
 }
 
-.corner-btn {
-  padding: 0.18rem 0.35rem;
-  border-radius: 9px;
-  font-size: 0.68rem;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid var(--border-strong);
-  box-shadow: var(--shadow-soft);
-}
-
-.corner-btn.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: transparent;
-}
-
 #board {
   position: absolute;
   inset: 0;
@@ -579,7 +563,8 @@ body[data-tool="paint-ocean"] .board-overlay {
 body[data-tool="crust"] .marker-overlay,
 body[data-tool="plate-id"] .marker-overlay,
 body[data-tool="direction"] .marker-overlay,
-body[data-tool="volcano"] .marker-overlay {
+body[data-tool="volcano"] .marker-overlay,
+body[data-tool="move-icon"] .marker-overlay {
   pointer-events: auto;
 }
 

@@ -5,12 +5,6 @@
   const TOTAL_CELLS = GRID * GRID;
   const MAX_ATTEMPTS = 1000;
   const MAX_PLATE_CONNECTIONS = 3;
-  const CORNERS = [
-    { id: "corner-tl-btn", col: 1, row: 1 },
-    { id: "corner-tr-btn", col: GRID, row: 1 },
-    { id: "corner-br-btn", col: GRID, row: GRID },
-    { id: "corner-bl-btn", col: 1, row: GRID },
-  ];
 
   const cellW = WIDTH / GRID;
   const cellH = HEIGHT / GRID;
@@ -24,12 +18,13 @@
   const nodeRadius = Math.min(microW, microH) * 0.18;
   const nodeHitRadius = nodeRadius * 1.9;
   const plateHitRadius = Math.min(microW, microH) * 0.5;
-  const continentFill = "rgba(23, 23, 23, 0.2)";
   const continentStroke = "rgba(20, 20, 20, 0.9)";
   const continentStrokeActive = "rgba(7, 7, 7, 0.98)";
-  const draftStroke = "rgba(20, 20, 20, 0.75)";
   const draftPoint = "rgba(20, 20, 20, 0.85)";
   const draftPointActive = "rgba(7, 7, 7, 0.98)";
+  const divideStroke = "rgba(14, 12, 10, 0.96)";
+  const divideDashPattern = [6, 4];
+  const divideLineWidth = 1;
   const surfacePaintColors = {
     continent: "rgba(20, 20, 20, 0.22)",
     ocean: "rgba(20, 20, 20, 0.12)",
@@ -41,7 +36,7 @@
   const crustIcons = {
     ocean: "\u2248",
     mixed: "\u25D0",
-    continent: "\u25B3",
+    continent: "\u25CF",
   };
   const volcanoIcon = "\u25B2";
   const directionIcons = {
@@ -108,6 +103,7 @@
   let lastEdgeLayout = null;
   let rightPanelOffsetFrame = null;
   let overlayRenderFrame = null;
+  let overlayUnitsPerCssPixel = 1;
   let surfacePaintCacheCanvas = null;
   let surfacePaintCacheCtx = null;
   let surfacePaintCacheDirty = true;
@@ -118,6 +114,7 @@
     ui.rollSixBtn = document.getElementById("roll-6-btn");
     ui.rollAllCrustsBtn = document.getElementById("roll-all-crusts-btn");
     ui.rollAllDirectionsBtn = document.getElementById("roll-all-directions-btn");
+    ui.connectPointsBtn = document.getElementById("connect-points-btn");
     ui.pencilBtn = document.getElementById("pencil-btn");
     ui.arrowBtn = document.getElementById("arrow-btn");
     ui.divideBtn = document.getElementById("divide-btn");
@@ -126,6 +123,7 @@
     ui.directionBtn = document.getElementById("direction-btn");
     ui.continentBtn = document.getElementById("continent-btn");
     ui.volcanoBtn = document.getElementById("volcano-btn");
+    ui.moveIconBtn = document.getElementById("move-icon-btn");
     ui.deleteContinentBtn = document.getElementById("delete-continent-btn");
     ui.clearBtn = document.getElementById("clear-btn");
     ui.undoBtn = document.getElementById("undo-btn");
@@ -164,10 +162,6 @@
     ui.paintOceanBtn = document.getElementById("paint-ocean-btn");
     ui.surfaceRadiusSlider = document.getElementById("surface-radius-slider");
     ui.surfaceRadiusValue = document.getElementById("surface-radius-value");
-    ui.cornerButtons = CORNERS.map((corner) => ({
-      ...corner,
-      el: document.getElementById(corner.id),
-    }));
     ui.continentCtx = ui.continentCanvas
       ? ui.continentCanvas.getContext("2d")
       : null;
@@ -190,6 +184,9 @@
     if (ui.rollAllDirectionsBtn) {
       ui.rollAllDirectionsBtn.addEventListener("click", handleRollAllDirections);
     }
+    if (ui.connectPointsBtn) {
+      ui.connectPointsBtn.addEventListener("click", handleConnectPoints);
+    }
     ui.pencilBtn.addEventListener("click", togglePencil);
     ui.arrowBtn.addEventListener("click", toggleArrow);
     if (ui.divideBtn) {
@@ -200,6 +197,9 @@
     ui.directionBtn.addEventListener("click", toggleDirection);
     ui.continentBtn.addEventListener("click", toggleContinent);
     ui.volcanoBtn.addEventListener("click", toggleVolcano);
+    if (ui.moveIconBtn) {
+      ui.moveIconBtn.addEventListener("click", toggleMoveIcon);
+    }
     ui.deleteContinentBtn.addEventListener("click", handleDeleteContinent);
     ui.clearBtn.addEventListener("click", handleClearAll);
     ui.undoBtn.addEventListener("click", handleUndo);
@@ -261,16 +261,6 @@
       );
       ui.surfaceRadiusSlider.addEventListener("input", handleSurfaceRadiusInput);
     }
-    if (ui.cornerButtons) {
-      ui.cornerButtons.forEach((corner) => {
-        if (!corner.el) {
-          return;
-        }
-        corner.el.addEventListener("click", () =>
-          toggleCornerPoint(corner.col, corner.row)
-        );
-      });
-    }
     if (ui.continentCanvas) {
       ui.continentCanvas.addEventListener("pointerdown", handleContinentPointerDown);
       ui.continentCanvas.addEventListener("pointermove", handleContinentPointerMove);
@@ -326,8 +316,8 @@
 
     const result = rollRandomPoint();
     if (result) {
-      if (result.repeated) {
-        setMessage(`Repeated (${result.col}, ${result.row}): point thickened.`);
+      if (result.hotspot) {
+        setMessage(`Repeated (${result.col}, ${result.row}): point converted to volcano.`);
       } else {
         setMessage(`Marked (${result.col}, ${result.row}).`);
       }
@@ -346,7 +336,7 @@
     }
 
     let added = 0;
-    let repeated = 0;
+    let hotspots = 0;
     let lastResult = null;
 
     for (let i = 0; i < 30; i += 1) {
@@ -354,19 +344,19 @@
       if (!result) {
         break;
       }
-      if (result.repeated) {
-        repeated += 1;
+      if (result.hotspot) {
+        hotspots += 1;
       } else {
         added += 1;
       }
       lastResult = result;
     }
 
-    if (added === 0 && repeated === 0) {
+    if (added === 0 && hotspots === 0) {
       setMessage("No free cell found.");
     } else {
       const lastText = lastResult ? ` Last (${lastResult.col}, ${lastResult.row}).` : "";
-      setMessage(`Rolled 30 points. New: ${added}. Thickened: ${repeated}.${lastText}`);
+      setMessage(`Rolled 30 points. New: ${added}. Hotspots: ${hotspots}.${lastText}`);
     }
 
     render();
@@ -380,6 +370,888 @@
   function handleRollAllDirections() {
     cancelClearConfirm();
     rollAllPlateCenters("direction");
+  }
+
+  function isPlateConnectablePointKey(key) {
+    return getPointWeight(key) <= 1;
+  }
+
+  function getConnectablePlatePointCount() {
+    let count = 0;
+    state.selectedCells.forEach((key) => {
+      if (isPlateConnectablePointKey(key)) {
+        count += 1;
+      }
+    });
+    return count;
+  }
+
+  function getSelectedPlatePointsForAutoConnect() {
+    const points = [];
+    state.selectedCells.forEach((key) => {
+      if (!isPlateConnectablePointKey(key)) {
+        return;
+      }
+      const [col, row] = key.split(",").map(Number);
+      const center = getPointCenter(col, row);
+      points.push({
+        key,
+        col,
+        row,
+        x: center.x,
+        y: center.y,
+      });
+    });
+    points.sort((a, b) => a.row - b.row || a.col - b.col);
+    return points;
+  }
+
+  function getAutoConnectPairKey(keyA, keyB) {
+    return keyA < keyB ? `${keyA}|${keyB}` : `${keyB}|${keyA}`;
+  }
+
+  function normalizeAngle(angle) {
+    const fullTurn = Math.PI * 2;
+    let normalized = angle % fullTurn;
+    if (normalized > Math.PI) {
+      normalized -= fullTurn;
+    } else if (normalized < -Math.PI) {
+      normalized += fullTurn;
+    }
+    return normalized;
+  }
+
+  function smallestAngleDifference(angleA, angleB) {
+    const diff = Math.abs(normalizeAngle(angleA - angleB));
+    return diff > Math.PI ? Math.PI * 2 - diff : diff;
+  }
+
+  function getAutoConnectWrapOptions(start, end) {
+    const baseDx = end.x - start.x;
+    const options = [
+      { wrapSide: null, dx: baseDx },
+      { wrapSide: "left", dx: baseDx - WIDTH },
+      { wrapSide: "right", dx: baseDx + WIDTH },
+    ];
+    options.sort((a, b) => {
+      const diff = Math.abs(a.dx) - Math.abs(b.dx);
+      if (Math.abs(diff) > 0.0001) {
+        return diff;
+      }
+      if (a.wrapSide && !b.wrapSide) {
+        return -1;
+      }
+      if (!a.wrapSide && b.wrapSide) {
+        return 1;
+      }
+      return 0;
+    });
+    return options.slice(0, 2);
+  }
+
+  function createAutoConnectCandidate(
+    start,
+    end,
+    startIndex,
+    endIndex,
+    wrapSide = null
+  ) {
+    const baseDx = end.x - start.x;
+    const dx =
+      wrapSide === "left" ? baseDx - WIDTH : wrapSide === "right" ? baseDx + WIDTH : baseDx;
+    const dy = end.y - start.y;
+    const length = Math.hypot(dx, dy);
+    const preferredLength = Math.min(WIDTH, HEIGHT) * 0.22;
+    const longPenalty = Math.max(0, length - Math.min(WIDTH, HEIGHT) * 0.48) * 5.4;
+    const extremePenalty = Math.max(0, length - Math.min(WIDTH, HEIGHT) * 0.62) * 22;
+    const randomJitter = (Math.random() - 0.5) * Math.min(microW, microH) * 1.6;
+    const fillScore =
+      Math.abs(length - preferredLength) * 0.72 +
+      length * 0.32 +
+      longPenalty +
+      extremePenalty +
+      randomJitter +
+      (wrapSide ? -1.6 : 0);
+    const treeScore =
+      length +
+      longPenalty * 1.45 +
+      extremePenalty * 2.7 +
+      Math.random() * Math.min(microW, microH) * 1.2 +
+      (wrapSide ? -1.1 : 0);
+    const angleFromStart = Math.atan2(dy, dx);
+    const angleFromEnd = normalizeAngle(angleFromStart + Math.PI);
+
+    return {
+      pairKey: getAutoConnectPairKey(start.key, end.key),
+      start,
+      end,
+      startKey: start.key,
+      endKey: end.key,
+      startIndex,
+      endIndex,
+      wrapSide,
+      length,
+      fillScore,
+      treeScore,
+      angleFromStart,
+      angleFromEnd,
+      curve: null,
+      hitSegments: null,
+    };
+  }
+
+  function buildAutoConnectCandidates(points) {
+    const candidates = [];
+    for (let i = 0; i < points.length; i += 1) {
+      for (let j = i + 1; j < points.length; j += 1) {
+        const wrapOptions = getAutoConnectWrapOptions(points[i], points[j]);
+        wrapOptions.forEach((option) => {
+          candidates.push(
+            createAutoConnectCandidate(points[i], points[j], i, j, option.wrapSide)
+          );
+        });
+      }
+    }
+    return candidates;
+  }
+
+  function createUnionFind(size) {
+    const parent = Array.from({ length: size }, (_, index) => index);
+    const rank = new Array(size).fill(0);
+
+    function find(index) {
+      let root = index;
+      while (parent[root] !== root) {
+        root = parent[root];
+      }
+      let current = index;
+      while (parent[current] !== current) {
+        const next = parent[current];
+        parent[current] = root;
+        current = next;
+      }
+      return root;
+    }
+
+    function union(a, b) {
+      const rootA = find(a);
+      const rootB = find(b);
+      if (rootA === rootB) {
+        return false;
+      }
+      if (rank[rootA] < rank[rootB]) {
+        parent[rootA] = rootB;
+      } else if (rank[rootA] > rank[rootB]) {
+        parent[rootB] = rootA;
+      } else {
+        parent[rootB] = rootA;
+        rank[rootA] += 1;
+      }
+      return true;
+    }
+
+    function connected(a, b) {
+      return find(a) === find(b);
+    }
+
+    return { find, union, connected };
+  }
+
+  function getAutoConnectAnglePenalty(nodeAngles, key, candidateAngle) {
+    const angles = nodeAngles.get(key);
+    if (!angles || angles.length === 0) {
+      return 0;
+    }
+    let minDiff = Math.PI;
+    for (let i = 0; i < angles.length; i += 1) {
+      const diff = smallestAngleDifference(candidateAngle, angles[i]);
+      if (diff < minDiff) {
+        minDiff = diff;
+      }
+    }
+    const threshold = Math.PI / 4.3;
+    if (minDiff >= threshold) {
+      return 0;
+    }
+    return ((threshold - minDiff) / threshold) * 3.6;
+  }
+
+  function autoConnectPointOnSegment(
+    px,
+    py,
+    x1,
+    y1,
+    x2,
+    y2,
+    epsilon = 0.0001
+  ) {
+    return (
+      px >= Math.min(x1, x2) - epsilon &&
+      px <= Math.max(x1, x2) + epsilon &&
+      py >= Math.min(y1, y2) - epsilon &&
+      py <= Math.max(y1, y2) + epsilon
+    );
+  }
+
+  function autoConnectSegmentCross(segmentA, segmentB) {
+    const epsilon = 0.0001;
+    if (
+      Math.max(segmentA.x1, segmentA.x2) + epsilon <
+        Math.min(segmentB.x1, segmentB.x2) ||
+      Math.max(segmentB.x1, segmentB.x2) + epsilon <
+        Math.min(segmentA.x1, segmentA.x2) ||
+      Math.max(segmentA.y1, segmentA.y2) + epsilon <
+        Math.min(segmentB.y1, segmentB.y2) ||
+      Math.max(segmentB.y1, segmentB.y2) + epsilon <
+        Math.min(segmentA.y1, segmentA.y2)
+    ) {
+      return false;
+    }
+
+    const cross = (ax, ay, bx, by, cx, cy) =>
+      (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+
+    const d1 = cross(
+      segmentA.x1,
+      segmentA.y1,
+      segmentA.x2,
+      segmentA.y2,
+      segmentB.x1,
+      segmentB.y1
+    );
+    const d2 = cross(
+      segmentA.x1,
+      segmentA.y1,
+      segmentA.x2,
+      segmentA.y2,
+      segmentB.x2,
+      segmentB.y2
+    );
+    const d3 = cross(
+      segmentB.x1,
+      segmentB.y1,
+      segmentB.x2,
+      segmentB.y2,
+      segmentA.x1,
+      segmentA.y1
+    );
+    const d4 = cross(
+      segmentB.x1,
+      segmentB.y1,
+      segmentB.x2,
+      segmentB.y2,
+      segmentA.x2,
+      segmentA.y2
+    );
+
+    const hasProperCrossing =
+      ((d1 > epsilon && d2 < -epsilon) || (d1 < -epsilon && d2 > epsilon)) &&
+      ((d3 > epsilon && d4 < -epsilon) || (d3 < -epsilon && d4 > epsilon));
+    if (hasProperCrossing) {
+      return true;
+    }
+
+    if (
+      Math.abs(d1) <= epsilon &&
+      autoConnectPointOnSegment(
+        segmentB.x1,
+        segmentB.y1,
+        segmentA.x1,
+        segmentA.y1,
+        segmentA.x2,
+        segmentA.y2,
+        epsilon
+      )
+    ) {
+      return true;
+    }
+    if (
+      Math.abs(d2) <= epsilon &&
+      autoConnectPointOnSegment(
+        segmentB.x2,
+        segmentB.y2,
+        segmentA.x1,
+        segmentA.y1,
+        segmentA.x2,
+        segmentA.y2,
+        epsilon
+      )
+    ) {
+      return true;
+    }
+    if (
+      Math.abs(d3) <= epsilon &&
+      autoConnectPointOnSegment(
+        segmentA.x1,
+        segmentA.y1,
+        segmentB.x1,
+        segmentB.y1,
+        segmentB.x2,
+        segmentB.y2,
+        epsilon
+      )
+    ) {
+      return true;
+    }
+    if (
+      Math.abs(d4) <= epsilon &&
+      autoConnectPointOnSegment(
+        segmentA.x2,
+        segmentA.y2,
+        segmentB.x1,
+        segmentB.y1,
+        segmentB.x2,
+        segmentB.y2,
+        epsilon
+      )
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function createAutoConnectCurve() {
+    const curve = createRandomPlateCurve();
+    if (curve && curve.mode === "tectonic") {
+      curve.roughness = clamp(curve.roughness * 0.65, 0.018, 0.075);
+      curve.broadBend = clamp(curve.broadBend * 0.6, -0.16, 0.16);
+      curve.alongScale = clamp(curve.alongScale * 0.55, 0.003, 0.03);
+    }
+    return curve;
+  }
+
+  function getCandidateCurveSegments(candidate) {
+    if (candidate.hitSegments) {
+      return candidate.hitSegments;
+    }
+    if (!candidate.curve) {
+      candidate.curve = createAutoConnectCurve();
+    }
+    const wrappedSegments = getWrappedLineSegments(
+      candidate.start.x,
+      candidate.start.y,
+      candidate.end.x,
+      candidate.end.y,
+      candidate.wrapSide
+    );
+    candidate.hitSegments = wrappedSegments.flatMap((segment) =>
+      buildPlateCurveHitSegments(segment, candidate.curve)
+    );
+    return candidate.hitSegments;
+  }
+
+  function candidateCrossesAcceptedEdges(candidate, acceptedEdges) {
+    const candidateSegments = getCandidateCurveSegments(candidate);
+    for (let i = 0; i < acceptedEdges.length; i += 1) {
+      const existing = acceptedEdges[i];
+      const sharesEndpoint =
+        candidate.startKey === existing.startKey ||
+        candidate.startKey === existing.endKey ||
+        candidate.endKey === existing.startKey ||
+        candidate.endKey === existing.endKey;
+      if (sharesEndpoint) {
+        continue;
+      }
+      const existingSegments = getCandidateCurveSegments(existing);
+      for (let a = 0; a < candidateSegments.length; a += 1) {
+        for (let b = 0; b < existingSegments.length; b += 1) {
+          if (autoConnectSegmentCross(candidateSegments[a], existingSegments[b])) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  function acceptAutoConnectCandidate(candidate, context) {
+    getCandidateCurveSegments(candidate);
+    context.acceptedEdges.push(candidate);
+    context.connectedPairs.add(candidate.pairKey);
+    context.degrees.set(
+      candidate.startKey,
+      (context.degrees.get(candidate.startKey) || 0) + 1
+    );
+    context.degrees.set(
+      candidate.endKey,
+      (context.degrees.get(candidate.endKey) || 0) + 1
+    );
+    const startAngles = context.nodeAngles.get(candidate.startKey);
+    const endAngles = context.nodeAngles.get(candidate.endKey);
+    if (startAngles) {
+      startAngles.push(candidate.angleFromStart);
+    }
+    if (endAngles) {
+      endAngles.push(candidate.angleFromEnd);
+    }
+    const startNeighbors = context.adjacency.get(candidate.startKey);
+    const endNeighbors = context.adjacency.get(candidate.endKey);
+    if (startNeighbors && endNeighbors) {
+      let triangleDelta = 0;
+      startNeighbors.forEach((neighborKey) => {
+        if (endNeighbors.has(neighborKey)) {
+          triangleDelta += 1;
+        }
+      });
+      context.triangleCount += triangleDelta;
+    }
+    if (startNeighbors) {
+      startNeighbors.add(candidate.endKey);
+    }
+    if (endNeighbors) {
+      endNeighbors.add(candidate.startKey);
+    }
+    context.uf.union(candidate.startIndex, candidate.endIndex);
+  }
+
+  function pickAutoConnectCandidateForNode(
+    nodeKey,
+    candidatesByNode,
+    context,
+    targetDegree,
+    strictCrossing
+  ) {
+    const pool = candidatesByNode.get(nodeKey) || [];
+    let best = null;
+    let bestScore = Infinity;
+
+    for (let i = 0; i < pool.length; i += 1) {
+      const candidate = pool[i];
+      if (context.connectedPairs.has(candidate.pairKey)) {
+        continue;
+      }
+
+      const startDegree = context.degrees.get(candidate.startKey) || 0;
+      const endDegree = context.degrees.get(candidate.endKey) || 0;
+      if (startDegree >= MAX_PLATE_CONNECTIONS || endDegree >= MAX_PLATE_CONNECTIONS) {
+        continue;
+      }
+
+      const otherKey =
+        candidate.startKey === nodeKey ? candidate.endKey : candidate.startKey;
+      const otherDegree = context.degrees.get(otherKey) || 0;
+      let score = candidate.fillScore;
+
+      if (otherDegree < targetDegree) {
+        score -= 18;
+      } else {
+        score += 6;
+      }
+      if (otherDegree === 0) {
+        score -= 8;
+      }
+
+      const nodeAngle =
+        candidate.startKey === nodeKey
+          ? candidate.angleFromStart
+          : candidate.angleFromEnd;
+      const otherAngle =
+        candidate.startKey === nodeKey
+          ? candidate.angleFromEnd
+          : candidate.angleFromStart;
+      score += getAutoConnectAnglePenalty(context.nodeAngles, nodeKey, nodeAngle) * 8;
+      score += getAutoConnectAnglePenalty(context.nodeAngles, otherKey, otherAngle) * 5.6;
+
+      if (!context.uf.connected(candidate.startIndex, candidate.endIndex)) {
+        score -= 10;
+      }
+
+      const crosses = candidateCrossesAcceptedEdges(candidate, context.acceptedEdges);
+      if (strictCrossing && crosses) {
+        continue;
+      }
+      if (!strictCrossing && crosses) {
+        score += 220;
+      }
+
+      const startNeighbors = context.adjacency.get(candidate.startKey);
+      const endNeighbors = context.adjacency.get(candidate.endKey);
+      let triangleDelta = 0;
+      if (startNeighbors && endNeighbors) {
+        startNeighbors.forEach((neighborKey) => {
+          if (endNeighbors.has(neighborKey)) {
+            triangleDelta += 1;
+          }
+        });
+      }
+      if (triangleDelta > 0) {
+        const baselinePenalty = triangleDelta * 95;
+        const overflowTriangles = Math.max(
+          0,
+          context.triangleCount + triangleDelta - 2
+        );
+        const overflowPenalty = overflowTriangles * 620;
+        score += baselinePenalty + overflowPenalty;
+      }
+
+      score += Math.random() * 0.8;
+      if (score < bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
+    }
+
+    return best;
+  }
+
+  function fillAutoConnectDegreeTarget(
+    targetDegree,
+    strictCrossing,
+    points,
+    context,
+    candidatesByNode
+  ) {
+    let changed = true;
+    let safety = points.length * MAX_PLATE_CONNECTIONS * 6;
+
+    while (changed && safety > 0) {
+      changed = false;
+      safety -= 1;
+      const ordered = [...points].sort((a, b) => {
+        const degreeA = context.degrees.get(a.key) || 0;
+        const degreeB = context.degrees.get(b.key) || 0;
+        if (degreeA !== degreeB) {
+          return degreeA - degreeB;
+        }
+        return Math.random() - 0.5;
+      });
+
+      for (let i = 0; i < ordered.length; i += 1) {
+        const node = ordered[i];
+        const degree = context.degrees.get(node.key) || 0;
+        if (degree >= targetDegree || degree >= MAX_PLATE_CONNECTIONS) {
+          continue;
+        }
+        const candidate = pickAutoConnectCandidateForNode(
+          node.key,
+          candidatesByNode,
+          context,
+          targetDegree,
+          strictCrossing
+        );
+        if (!candidate) {
+          continue;
+        }
+        acceptAutoConnectCandidate(candidate, context);
+        changed = true;
+      }
+    }
+  }
+
+  function countUnionFindComponents(uf, size) {
+    const roots = new Set();
+    for (let i = 0; i < size; i += 1) {
+      roots.add(uf.find(i));
+    }
+    return roots.size;
+  }
+
+  function buildAutoConnectNetwork(points) {
+    if (!points || points.length < 2) {
+      return {
+        edges: [],
+        degrees: new Map(),
+        components: points && points.length ? points.length : 0,
+      };
+    }
+
+    const candidates = buildAutoConnectCandidates(points);
+    const degrees = new Map();
+    const nodeAngles = new Map();
+    const candidatesByNode = new Map();
+    const adjacency = new Map();
+    points.forEach((point) => {
+      degrees.set(point.key, 0);
+      nodeAngles.set(point.key, []);
+      candidatesByNode.set(point.key, []);
+      adjacency.set(point.key, new Set());
+    });
+    candidates.forEach((candidate) => {
+      const startCandidates = candidatesByNode.get(candidate.startKey);
+      const endCandidates = candidatesByNode.get(candidate.endKey);
+      if (startCandidates) {
+        startCandidates.push(candidate);
+      }
+      if (endCandidates) {
+        endCandidates.push(candidate);
+      }
+    });
+
+    const context = {
+      acceptedEdges: [],
+      connectedPairs: new Set(),
+      degrees,
+      nodeAngles,
+      adjacency,
+      triangleCount: 0,
+      uf: createUnionFind(points.length),
+    };
+
+    const treeCandidates = [...candidates].sort((a, b) => a.treeScore - b.treeScore);
+    for (let i = 0; i < treeCandidates.length; i += 1) {
+      const candidate = treeCandidates[i];
+      if (context.connectedPairs.has(candidate.pairKey)) {
+        continue;
+      }
+      if (context.uf.connected(candidate.startIndex, candidate.endIndex)) {
+        continue;
+      }
+      const startDegree = context.degrees.get(candidate.startKey) || 0;
+      const endDegree = context.degrees.get(candidate.endKey) || 0;
+      if (startDegree >= MAX_PLATE_CONNECTIONS || endDegree >= MAX_PLATE_CONNECTIONS) {
+        continue;
+      }
+      if (candidateCrossesAcceptedEdges(candidate, context.acceptedEdges)) {
+        continue;
+      }
+      acceptAutoConnectCandidate(candidate, context);
+    }
+
+    for (let i = 0; i < treeCandidates.length; i += 1) {
+      const candidate = treeCandidates[i];
+      if (context.connectedPairs.has(candidate.pairKey)) {
+        continue;
+      }
+      if (context.uf.connected(candidate.startIndex, candidate.endIndex)) {
+        continue;
+      }
+      const startDegree = context.degrees.get(candidate.startKey) || 0;
+      const endDegree = context.degrees.get(candidate.endKey) || 0;
+      if (startDegree >= MAX_PLATE_CONNECTIONS || endDegree >= MAX_PLATE_CONNECTIONS) {
+        continue;
+      }
+      acceptAutoConnectCandidate(candidate, context);
+    }
+
+    fillAutoConnectDegreeTarget(2, true, points, context, candidatesByNode);
+    fillAutoConnectDegreeTarget(3, true, points, context, candidatesByNode);
+
+    const hasUnderTwo = points.some((point) => (context.degrees.get(point.key) || 0) < 2);
+    if (hasUnderTwo) {
+      fillAutoConnectDegreeTarget(2, false, points, context, candidatesByNode);
+    }
+    const hasUnderThree = points.some((point) => (context.degrees.get(point.key) || 0) < 3);
+    if (hasUnderThree) {
+      fillAutoConnectDegreeTarget(3, false, points, context, candidatesByNode);
+    }
+
+    return {
+      edges: context.acceptedEdges,
+      degrees: context.degrees,
+      components: countUnionFindComponents(context.uf, points.length),
+    };
+  }
+
+  function countAutoConnectCrossings(edges) {
+    if (!edges || edges.length <= 1) {
+      return 0;
+    }
+    let count = 0;
+    for (let i = 0; i < edges.length; i += 1) {
+      const edgeA = edges[i];
+      const segmentsA = getCandidateCurveSegments(edgeA);
+      for (let j = i + 1; j < edges.length; j += 1) {
+        const edgeB = edges[j];
+        if (
+          edgeA.startKey === edgeB.startKey ||
+          edgeA.startKey === edgeB.endKey ||
+          edgeA.endKey === edgeB.startKey ||
+          edgeA.endKey === edgeB.endKey
+        ) {
+          continue;
+        }
+        const segmentsB = getCandidateCurveSegments(edgeB);
+        let crossed = false;
+        for (let a = 0; a < segmentsA.length && !crossed; a += 1) {
+          for (let b = 0; b < segmentsB.length; b += 1) {
+            if (autoConnectSegmentCross(segmentsA[a], segmentsB[b])) {
+              crossed = true;
+              break;
+            }
+          }
+        }
+        if (crossed) {
+          count += 1;
+        }
+      }
+    }
+    return count;
+  }
+
+  function countAutoConnectTriangles(edges) {
+    if (!edges || edges.length < 3) {
+      return 0;
+    }
+    const adjacency = new Map();
+    edges.forEach((edge) => {
+      if (!adjacency.has(edge.startKey)) {
+        adjacency.set(edge.startKey, new Set());
+      }
+      if (!adjacency.has(edge.endKey)) {
+        adjacency.set(edge.endKey, new Set());
+      }
+      adjacency.get(edge.startKey).add(edge.endKey);
+      adjacency.get(edge.endKey).add(edge.startKey);
+    });
+
+    let triangles = 0;
+    const keys = [...adjacency.keys()].sort();
+    for (let i = 0; i < keys.length; i += 1) {
+      const a = keys[i];
+      const neighborsA = [...adjacency.get(a)].filter((key) => key > a).sort();
+      for (let j = 0; j < neighborsA.length; j += 1) {
+        const b = neighborsA[j];
+        const neighborsB = adjacency.get(b);
+        if (!neighborsB) {
+          continue;
+        }
+        for (let k = j + 1; k < neighborsA.length; k += 1) {
+          const c = neighborsA[k];
+          if (neighborsB.has(c)) {
+            triangles += 1;
+          }
+        }
+      }
+    }
+    return triangles;
+  }
+
+  function getAutoConnectNetworkStats(points, network) {
+    const degrees = (network && network.degrees) || new Map();
+    const edges = (network && network.edges) || [];
+    let isolated = 0;
+    let underTwo = 0;
+    let underThree = 0;
+    points.forEach((point) => {
+      const degree = degrees.get(point.key) || 0;
+      if (degree <= 0) {
+        isolated += 1;
+      }
+      if (degree < 2) {
+        underTwo += 1;
+      }
+      if (degree < 3) {
+        underThree += 1;
+      }
+    });
+
+    const longThreshold = Math.min(WIDTH, HEIGHT) * 0.56;
+    let longPenalty = 0;
+    let totalLength = 0;
+    edges.forEach((edge) => {
+      const length = Number(edge.length) || 0;
+      totalLength += length;
+      const overflow = Math.max(0, length - longThreshold);
+      longPenalty += overflow * overflow;
+    });
+
+    return {
+      components: Number(network && network.components) || points.length,
+      isolated,
+      underTwo,
+      underThree,
+      crossings: countAutoConnectCrossings(edges),
+      triangles: countAutoConnectTriangles(edges),
+      longPenalty,
+      totalLength,
+    };
+  }
+
+  function scoreAutoConnectNetworkStats(stats) {
+    const triangleOverflow = Math.max(0, stats.triangles - 2);
+    return (
+      stats.components * 1e9 +
+      stats.isolated * 2.6e8 +
+      stats.underTwo * 7.2e7 +
+      stats.crossings * 1.8e7 +
+      stats.triangles * 4.8e5 +
+      triangleOverflow * 1.4e7 +
+      stats.underThree * 2.2e6 +
+      stats.longPenalty * 32 +
+      stats.totalLength
+    );
+  }
+
+  function buildBestAutoConnectNetwork(points) {
+    const attemptCount = clamp(Math.round(10 + points.length * 0.35), 10, 28);
+    let best = null;
+
+    for (let attempt = 0; attempt < attemptCount; attempt += 1) {
+      const network = buildAutoConnectNetwork(points);
+      const stats = getAutoConnectNetworkStats(points, network);
+      const score = scoreAutoConnectNetworkStats(stats);
+      if (!best || score < best.score) {
+        best = { network, stats, score };
+      }
+      if (
+        stats.components === 1 &&
+        stats.isolated === 0 &&
+        stats.underTwo === 0 &&
+        stats.crossings === 0 &&
+        stats.triangles <= 2 &&
+        stats.underThree <= 1
+      ) {
+        break;
+      }
+    }
+
+    return best;
+  }
+
+  function handleConnectPoints() {
+    cancelClearConfirm();
+    if (state.selectedCells.size < 2) {
+      setMessage("Roll at least two points first.");
+      render();
+      return;
+    }
+    if (getPlateLineCount() > 0) {
+      setMessage("Connect points requires an empty boundary layer. Clear boundaries first.");
+      render();
+      return;
+    }
+
+    clearPlateDraft();
+    state.wrapSide = null;
+    const points = getSelectedPlatePointsForAutoConnect();
+    if (points.length < 2) {
+      setMessage("Need at least 2 points. Volcano hotspots are skipped.");
+      render();
+      return;
+    }
+    const bestResult = buildBestAutoConnectNetwork(points);
+    const network = bestResult ? bestResult.network : buildAutoConnectNetwork(points);
+    if (!network.edges.length) {
+      setMessage("No valid connections were generated.");
+      render();
+      return;
+    }
+
+    network.edges.forEach((edge) => {
+      addPlateConnection(
+        edge.start,
+        edge.end,
+        edge.wrapSide,
+        PLATE_STYLES.boundary,
+        edge.curve
+      );
+    });
+
+    const degreeValues = points.map((point) => network.degrees.get(point.key) || 0);
+    const stats = bestResult
+      ? bestResult.stats
+      : getAutoConnectNetworkStats(points, network);
+    const atLeastTwo = degreeValues.filter((degree) => degree >= 2).length;
+    const atLeastThree = degreeValues.filter((degree) => degree >= 3).length;
+    const isolated = degreeValues.filter((degree) => degree === 0).length;
+    const wrapLinks = network.edges.filter((edge) => Boolean(edge.wrapSide)).length;
+    const componentText = stats.components > 1 ? ` Components: ${stats.components}.` : "";
+    const crossingText = stats.crossings > 0 ? ` crossings: ${stats.crossings},` : "";
+    const triangleText = stats.triangles > 0 ? ` triangles: ${stats.triangles},` : "";
+    setMessage(
+      `Connected ${network.edges.length} boundaries. >=3: ${atLeastThree}/${points.length}, >=2: ${atLeastTwo}/${points.length}, isolated: ${isolated},${crossingText}${triangleText} wrap: ${wrapLinks}.${componentText}`
+    );
+    render();
   }
 
   function rollRandomPoint() {
@@ -854,7 +1726,13 @@
   }
 
   function isMarkerTool(tool) {
-    return tool === "crust" || tool === "plate-id" || tool === "direction" || tool === "volcano";
+    return (
+      tool === "crust" ||
+      tool === "plate-id" ||
+      tool === "direction" ||
+      tool === "volcano" ||
+      tool === "move-icon"
+    );
   }
 
   function setTool(nextTool) {
@@ -927,6 +1805,10 @@
 
   function toggleVolcano() {
     setTool("volcano");
+  }
+
+  function toggleMoveIcon() {
+    setTool("move-icon");
   }
 
   function getPlateStyleLabel(style) {
@@ -1217,7 +2099,13 @@
     return result;
   }
 
-  function addPlateConnection(start, end, wrapSide, plateStyle = PLATE_STYLES.boundary) {
+  function addPlateConnection(
+    start,
+    end,
+    wrapSide,
+    plateStyle = PLATE_STYLES.boundary,
+    curve = null
+  ) {
     const line = {
       x1: start.x,
       y1: start.y,
@@ -1230,7 +2118,7 @@
       plateStyle: Object.values(PLATE_STYLES).includes(plateStyle)
         ? plateStyle
         : PLATE_STYLES.boundary,
-      curve: createRandomPlateCurve(),
+      curve: curve ? JSON.parse(JSON.stringify(curve)) : createRandomPlateCurve(),
     };
     state.lines.push(line);
     recordHistory({
@@ -1949,6 +2837,21 @@
     }
 
     const hitPoint = buildPlatePoint(hit);
+    if (!isPlateConnectablePointKey(hitPoint.key)) {
+      setMessage("Hotspot point: this point is reserved and cannot be connected.");
+      render();
+      return;
+    }
+
+    if (
+      state.plateDraft &&
+      !isPlateConnectablePointKey(state.plateDraft.key)
+    ) {
+      clearPlateDraft();
+      setMessage("Chain ended: hotspot points cannot be connected.");
+      render();
+      return;
+    }
 
     if (!state.plateDraft) {
       if (countPlateConnections(hitPoint.key) >= MAX_PLATE_CONNECTIONS) {
@@ -2166,6 +3069,10 @@
     }
 
     if (event.button === 2) {
+      if (state.tool === "move-icon") {
+        event.preventDefault();
+        return;
+      }
       const removed = removeMarkerAt(point);
       if (!removed) {
         setMessage("Nothing to delete.");
@@ -2590,6 +3497,9 @@
     if (marker.type === "volcano") {
       return volcanoIconSize;
     }
+    if (marker.type === "crust" && marker.value === "continent") {
+      return markerIconSize * 1.5;
+    }
     return markerIconSize;
   }
 
@@ -2751,27 +3661,55 @@
     return getPointWeight(key) > 1 ? dotRadius * 1.85 : dotRadius;
   }
 
+  function findVolcanoMarkerAtPoint(point) {
+    const epsilon = 0.0001;
+    return (
+      state.markers.find(
+        (marker) =>
+          marker.type === "volcano" &&
+          Math.abs(marker.x - point.x) <= epsilon &&
+          Math.abs(marker.y - point.y) <= epsilon
+      ) || null
+    );
+  }
+
+  function convertPointToVolcano(key, microCol, microRow, roll) {
+    const beforeWeight = getPointWeight(key);
+    if (state.plateDraft && state.plateDraft.key === key) {
+      clearPlateDraft();
+    }
+    state.selectedCells.delete(key);
+    delete state.pointWeights[key];
+    const point = getPointCenter(microCol, microRow);
+    let addedMarker = null;
+    if (!findVolcanoMarkerAtPoint(point)) {
+      const marker = createMarker("volcano", point, "volcano");
+      state.markers.push(marker);
+      addedMarker = cloneMarker(marker);
+    }
+    recordHistory({
+      type: "point-hotspot",
+      key,
+      roll,
+      beforeWeight,
+      marker: addedMarker,
+      markerIndex: addedMarker ? state.markers.length - 1 : null,
+    });
+    state.lastRoll = roll;
+    return {
+      key,
+      col: roll.col,
+      row: roll.row,
+      repeated: true,
+      hotspot: true,
+    };
+  }
+
   function addCell(microCol, microRow, col, row) {
     const key = `${microCol},${microRow}`;
     const roll = { col, row };
     if (state.selectedCells.has(key)) {
-      const beforeWeight = getPointWeight(key);
-      const afterWeight = beforeWeight + 1;
-      state.pointWeights[key] = afterWeight;
-      recordHistory({
-        type: "point-weight",
-        key,
-        roll,
-        beforeWeight,
-        afterWeight,
-      });
-      state.lastRoll = roll;
-      return {
-        key,
-        col,
-        row,
-        repeated: true,
-      };
+      return convertPointToVolcano(key, microCol, microRow, roll);
     }
     state.selectedCells.add(key);
     state.pointWeights[key] = 1;
@@ -2782,25 +3720,8 @@
       col,
       row,
       repeated: false,
+      hotspot: false,
     };
-  }
-
-  function toggleCornerPoint(col, row) {
-    cancelClearConfirm();
-    const microCol = col - 1;
-    const microRow = row - 1;
-    const key = `${microCol},${microRow}`;
-    if (state.selectedCells.has(key)) {
-      if (state.plateDraft && state.plateDraft.key === key) {
-        clearPlateDraft();
-      }
-      removePoint(key, microCol, microRow);
-      setMessage(`Corner (${col}, ${row}) removed.`);
-    } else {
-      addCell(microCol, microRow, col, row);
-      setMessage(`Corner (${col}, ${row}) added.`);
-    }
-    render();
   }
 
   function undoLast() {
@@ -2837,6 +3758,14 @@
     if (entry.type === "point") {
       state.selectedCells.delete(entry.key);
       delete state.pointWeights[entry.key];
+      return;
+    }
+    if (entry.type === "point-hotspot") {
+      state.selectedCells.add(entry.key);
+      state.pointWeights[entry.key] = entry.beforeWeight || 1;
+      if (entry.marker) {
+        removeMarkers([{ marker: entry.marker, index: entry.markerIndex ?? -1 }]);
+      }
       return;
     }
     if (entry.type === "point-weight") {
@@ -2905,6 +3834,18 @@
     if (entry.type === "point") {
       state.selectedCells.add(entry.key);
       state.pointWeights[entry.key] = entry.weight || 1;
+      return;
+    }
+    if (entry.type === "point-hotspot") {
+      state.selectedCells.delete(entry.key);
+      delete state.pointWeights[entry.key];
+      if (entry.marker) {
+        removeMarkers([{ marker: entry.marker, index: entry.markerIndex ?? -1 }]);
+        insertMarkerAt(
+          Number.isInteger(entry.markerIndex) ? entry.markerIndex : state.markers.length,
+          entry.marker
+        );
+      }
       return;
     }
     if (entry.type === "point-weight") {
@@ -3286,6 +4227,8 @@
       toolModeLabel = "Paint Oceans";
     } else if (state.tool === "volcano") {
       toolModeLabel = "Add volcanoes";
+    } else if (state.tool === "move-icon") {
+      toolModeLabel = "Move icon";
     }
     if (ui.toolMode) {
       ui.toolMode.textContent = toolModeLabel;
@@ -3314,6 +4257,10 @@
     }
     if (ui.rollAllDirectionsBtn) {
       ui.rollAllDirectionsBtn.disabled = plateBoundaryCount === 0;
+    }
+    if (ui.connectPointsBtn) {
+      ui.connectPointsBtn.disabled =
+        getConnectablePlatePointCount() < 2 || plateBoundaryCount > 0;
     }
     ui.clearBtn.disabled = !hasMarks();
     ui.clearBtn.textContent = state.clearConfirm ? "Confirm restart" : "Restart";
@@ -3348,6 +4295,10 @@
     ui.continentBtn.classList.toggle("active", state.tool === "continent");
     ui.volcanoBtn.setAttribute("aria-pressed", state.tool === "volcano");
     ui.volcanoBtn.classList.toggle("active", state.tool === "volcano");
+    if (ui.moveIconBtn) {
+      ui.moveIconBtn.setAttribute("aria-pressed", state.tool === "move-icon");
+      ui.moveIconBtn.classList.toggle("active", state.tool === "move-icon");
+    }
     if (ui.paintContinentBtn) {
       ui.paintContinentBtn.setAttribute(
         "aria-pressed",
@@ -3399,16 +4350,16 @@
     if (ui.plateModeHint) {
       if (state.plateStyle === PLATE_STYLES.divergent) {
         ui.plateModeHint.textContent =
-          "Left click a boundary line to keep the main line and add one parallel line on one side. Right click resets any plate line to boundary.";
+          "Left click a boundary line to keep the main line and add one parallel line on one side. Right click resets a plate line to boundary.";
       } else if (state.plateStyle === PLATE_STYLES.convergent) {
         ui.plateModeHint.textContent =
-          "Left click a boundary line to add a convergent zigzag line. Right click resets any plate line to boundary.";
+          "Left click a boundary line to add a convergent zigzag line. Right click resets a plate line to boundary.";
       } else if (state.plateStyle === PLATE_STYLES.oblique) {
         ui.plateModeHint.textContent =
-          "Left click a boundary line to add an oblique curved zigzag. Right click resets any plate line to boundary.";
+          "Left click a boundary line to add an oblique curved zigzag. Right click resets a plate line to boundary.";
       } else {
         ui.plateModeHint.textContent =
-          "Boundary mode creates new links between points. Right click a plate line to delete it.";
+          "Boundary mode: click points to connect in a chain. Volcano hotspots are markers and cannot be connected. Right click a boundary line deletes it.";
       }
     }
     const wrapEnabled = state.tool === "pencil";
@@ -3421,17 +4372,6 @@
       ui.wrapRightBtn.disabled = !wrapEnabled;
       ui.wrapRightBtn.setAttribute("aria-pressed", state.wrapSide === "right");
       ui.wrapRightBtn.classList.toggle("active", state.wrapSide === "right");
-    }
-    if (ui.cornerButtons) {
-      ui.cornerButtons.forEach((corner) => {
-        if (!corner.el) {
-          return;
-        }
-        const key = `${corner.col - 1},${corner.row - 1}`;
-        const isActive = state.selectedCells.has(key);
-        corner.el.setAttribute("aria-pressed", isActive);
-        corner.el.classList.toggle("active", isActive);
-      });
     }
     ui.deleteContinentBtn.disabled = !state.selectedContinentId;
     ui.board.classList.toggle("pencil-active", isLineTool(state.tool));
@@ -3775,6 +4715,7 @@
     if (!rect.width || !rect.height) {
       return;
     }
+    overlayUnitsPerCssPixel = WIDTH / rect.width;
     const ratio = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
     const targetWidth = Math.round(rect.width * ratio);
     const targetHeight = Math.round(rect.height * ratio);
@@ -3790,6 +4731,15 @@
     ui.continentCtx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
     ui.continentCtx.lineJoin = "round";
     ui.continentCtx.lineCap = "round";
+  }
+
+  function applyDivideCanvasStrokeStyle(context) {
+    const unitsPerCssPx = Math.max(0.0001, overlayUnitsPerCssPixel || 1);
+    context.lineWidth = divideLineWidth * unitsPerCssPx;
+    context.strokeStyle = divideStroke;
+    context.setLineDash(divideDashPattern.map((value) => value * unitsPerCssPx));
+    context.lineCap = "round";
+    context.lineJoin = "round";
   }
 
   function handleContinentContextMenu(event) {
@@ -4473,13 +5423,8 @@
 
     state.continentPieces.forEach((piece) => {
       const isSelected = piece.id === state.selectedContinentId;
-      drawContinentPiece(
-        ui.continentCtx,
-        piece,
-        isSelected ? continentStrokeActive : continentStroke,
-        isSelected
-      );
-      if (isSelected) {
+      drawContinentPiece(ui.continentCtx, piece);
+      if (isSelected && state.tool === "continent") {
         drawContinentNodes(ui.continentCtx, piece);
       }
     });
@@ -4567,17 +5512,14 @@
     });
   }
 
-  function drawContinentPiece(context, piece, strokeStyle, isSelected) {
+  function drawContinentPiece(context, piece) {
     const centers = getVisibleWrappedCenters(piece);
     centers.forEach((center) => {
       context.save();
       context.translate(center.x, center.y);
       context.rotate(piece.rotation);
       traceContinentPath(context, piece.points);
-      context.fillStyle = continentFill;
-      context.fill();
-      context.lineWidth = isSelected ? 1.2 : 0.8;
-      context.strokeStyle = strokeStyle;
+      applyDivideCanvasStrokeStyle(context);
       context.stroke();
       context.restore();
     });
@@ -4620,8 +5562,7 @@
       Math.hypot(cursor.x - first.x, cursor.y - first.y) <= closeDistance;
 
     context.save();
-    context.strokeStyle = draftStroke;
-    context.lineWidth = 0.7;
+    applyDivideCanvasStrokeStyle(context);
     context.beginPath();
     context.moveTo(points[0].x, points[0].y);
     for (let i = 1; i < points.length; i += 1) {
@@ -4665,7 +5606,7 @@
         return;
       }
       ui.continentHint.textContent =
-        "Cratons: click to add nodes. Close by clicking the first node.";
+        "Cratons: click to add nodes. Close by clicking the first node. Closed cratons draw dashed outlines (no fill).";
       return;
     }
     if (state.tool === "paint-continent") {
@@ -4697,6 +5638,11 @@
       ui.continentHint.textContent = "Click to place a volcano. Drag to move.";
       return;
     }
+    if (state.tool === "move-icon") {
+      ui.continentHint.textContent =
+        "Move icon: drag any marker to reposition it. Right click does not delete in this mode.";
+      return;
+    }
     if (state.tool === "pencil") {
       if (state.plateStyle === PLATE_STYLES.divergent) {
         ui.continentHint.textContent =
@@ -4709,7 +5655,7 @@
           "Oblique mode: left click a plate line to add curved zigzag hills. Right click resets to boundary.";
       } else {
         ui.continentHint.textContent =
-          "Boundary mode: click points to connect in a chain. Right click a plate line deletes it.";
+          "Boundary mode: click points to connect in a chain. Volcano hotspots are markers and cannot be connected. Right click a boundary line deletes it.";
       }
       return;
     }
