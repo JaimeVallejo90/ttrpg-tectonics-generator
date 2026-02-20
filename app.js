@@ -4594,8 +4594,15 @@
       ui.connectPointsBtn.disabled =
         getConnectablePlatePointCount() < 2 || plateBoundaryCount > 0;
     }
+    if (ui.printPdfBtn) {
+      ui.printPdfBtn.title = "Open the print dialog (save as PDF).";
+    }
     if (ui.copyImageBtn) {
-      ui.copyImageBtn.disabled = !isClipboardImageSupported();
+      const copySupported = isClipboardImageSupported();
+      ui.copyImageBtn.disabled = !copySupported;
+      ui.copyImageBtn.title = copySupported
+        ? "Copy board image to clipboard."
+        : "Copy image is not available in this browser.";
     }
     ui.clearBtn.disabled = !hasMarks();
     ui.clearBtn.textContent = state.clearConfirm ? "Confirm restart" : "Restart";
@@ -4638,6 +4645,9 @@
       ui.toggleGridBtn.setAttribute("aria-pressed", state.showGrid);
       ui.toggleGridBtn.classList.toggle("active", state.showGrid);
       ui.toggleGridBtn.textContent = state.showGrid ? "Hide grid" : "Show grid";
+      ui.toggleGridBtn.title = state.showGrid
+        ? "Hide grid lines."
+        : "Show grid lines.";
     }
     if (ui.paintContinentBtn) {
       ui.paintContinentBtn.setAttribute(

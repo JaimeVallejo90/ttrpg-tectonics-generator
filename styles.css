@@ -181,8 +181,9 @@ body {
 .control-panel {
   top: var(--header-offset);
   max-height: calc(100vh - var(--header-offset));
-  left: calc(
-    (100vw - var(--page-width)) / 2 - var(--left-panel-width) - 1.2rem
+  left: max(
+    0.6rem,
+    calc((100vw - var(--page-width)) / 2 - var(--left-panel-width) - 1.2rem)
   );
   width: var(--left-panel-width);
 }
@@ -190,8 +191,9 @@ body {
 .auto-roll-panel,
 .plate-mode-panel,
 .surface-paint-panel {
-  right: calc(
-    (100vw - var(--page-width)) / 2 - var(--right-panel-width) - 1.2rem
+  right: max(
+    0.6rem,
+    calc((100vw - var(--page-width)) / 2 - var(--right-panel-width) - 1.2rem)
   );
   width: var(--right-panel-width);
 }
@@ -362,13 +364,15 @@ body {
   border-radius: 10px;
   background: rgba(200, 98, 45, 0.12);
   border: 1px solid rgba(200, 98, 45, 0.25);
-  min-height: 2.3rem;
-  max-height: 2.3rem;
-  display: flex;
-  align-items: center;
+  min-height: 2.8rem;
+  max-height: 2.8rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.25;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  white-space: normal;
+  text-overflow: clip;
 }
 
 .hint-line {
@@ -746,6 +750,25 @@ button:disabled {
 @media (max-width: 1200px) {
   .app-header {
     grid-template-columns: 1fr;
+  }
+
+  .control-panel,
+  .auto-roll-panel,
+  .plate-mode-panel,
+  .surface-paint-panel {
+    position: static;
+    width: 100%;
+    max-height: none;
+    overflow: visible;
+    z-index: auto;
+    left: auto;
+    right: auto;
+    top: auto;
+  }
+
+  .app-main {
+    display: grid;
+    gap: 1rem;
   }
 }
 
