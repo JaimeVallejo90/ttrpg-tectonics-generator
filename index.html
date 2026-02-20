@@ -16,20 +16,7 @@
     <div class="app-shell">
       <header class="app-header">
         <div class="title-block">
-          <div class="eyebrow">Tabletop worldbuilding toolkit</div>
           <h1>Plate Tectonics Generator</h1>
-          <p>
-            Build an A4 point cloud, sketch plates, and layer crust, directions,
-            arrows, cratons, and volcano hotspots in a clear step order.
-          </p>
-        </div>
-        <div class="header-card">
-          <div class="card-title">Quick tips</div>
-          <ul class="tip-list">
-            <li>In Paint Boundaries, right click deletes in Boundary mode and resets style in other boundary modes.</li>
-            <li>Repeating a rolled coordinate converts that point into a volcano hotspot marker.</li>
-            <li>Use Move icon to drag markers. Delete removes the selected marker or craton.</li>
-          </ul>
         </div>
       </header>
 
@@ -77,20 +64,9 @@
               <button id="redo-btn" class="secondary">Redo</button>
             </div>
           </div>
-          <div class="panel-block">
-            <div class="panel-title">Step 1: Roll points</div>
-            <div class="button-stack">
-              <button id="roll-btn" class="primary">Roll a point (2d20)</button>
-            </div>
-            <div class="panel-hint">
-              Rolls add seed points to the A4 grid. Repeated coordinates convert
-              that point into a volcano hotspot marker, so Clear points does not
-              remove it.
-            </div>
-          </div>
 
           <div class="panel-block">
-            <div class="panel-title">Steps 2-9: Tools</div>
+            <div class="panel-title">Tools</div>
             <div class="button-grid">
               <button id="pencil-btn" class="secondary wide-button" aria-pressed="false">Paint Boundaries</button>
               <button id="plate-id-btn" class="secondary" aria-pressed="false">Identify plates</button>
@@ -101,11 +77,7 @@
               <button id="divide-btn" class="secondary" aria-pressed="false">Paint Divides</button>
               <button id="volcano-btn" class="secondary" aria-pressed="false">Add volcanoes</button>
               <button id="move-icon-btn" class="secondary" aria-pressed="false">Move icon</button>
-            </div>
-            <div class="panel-hint">
-              In Paint Boundaries, left click existing lines to change style. Right
-              click deletes in Boundary mode and resets in other boundary modes.
-              Move icon drags any marker without rolling.
+              <button id="toggle-grid-btn" class="secondary wide-button" aria-pressed="true">Hide grid</button>
             </div>
           </div>
 
@@ -124,27 +96,30 @@
           </div>
 
           <div class="panel-block">
+            <div class="panel-title">Export</div>
+            <div class="button-grid">
+              <button id="print-pdf-btn" class="secondary">Print PDF</button>
+              <button id="copy-image-btn" class="secondary">Copy image</button>
+            </div>
+          </div>
+
+          <div class="panel-block">
             <div class="panel-title">Danger zone</div>
             <div class="button-stack">
-              <button id="delete-continent-btn" class="ghost">Delete craton</button>
               <button id="clear-btn" class="danger">Restart</button>
             </div>
           </div>
         </aside>
 
         <aside id="auto-roll-panel" class="panel auto-roll-panel">
-          <div class="panel-title">Auto Roll</div>
+          <div class="panel-title">Roll</div>
           <div class="panel-block">
             <div class="button-stack">
+              <button id="roll-btn" class="primary">Roll a point (2d20)</button>
               <button id="roll-6-btn" class="secondary">Roll 30 points</button>
               <button id="roll-all-crusts-btn" class="secondary">Roll all crusts</button>
               <button id="roll-all-directions-btn" class="secondary">Roll all directions</button>
               <button id="connect-points-btn" class="secondary">Connect points</button>
-            </div>
-            <div class="panel-hint">
-              Roll all crusts/directions detects plate centers from Paint
-              Boundaries and places one marker per plate. Connect points works only
-              on an empty boundary layer and skips volcano hotspots.
             </div>
           </div>
         </aside>
@@ -183,9 +158,6 @@
                 Oblique
               </button>
             </div>
-            <div class="panel-hint" id="plate-mode-hint">
-              Boundary mode: click points to connect in a chain.
-            </div>
           </div>
         </aside>
 
@@ -217,9 +189,6 @@
               <div class="slider-value">
                 Radius: <span id="surface-radius-value">4</span>
               </div>
-            </div>
-            <div class="panel-hint">
-              Left click paints. Right click is an eraser brush.
             </div>
           </div>
         </aside>

@@ -67,6 +67,7 @@
     GRID,
     Math.round((AUTO_ROLL_SAMPLE_COLS * HEIGHT) / WIDTH)
   );
+  const EXPORT_SCALE = 8;
 
   const state = {
     selectedCells: new Set(),
@@ -95,6 +96,7 @@
     surfaceBrushRadius: DEFAULT_SURFACE_BRUSH_RADIUS,
     nextContinentId: 1,
     nextMarkerId: 1,
+    showGrid: true,
     clearConfirm: false,
   };
 
@@ -124,10 +126,12 @@
     ui.continentBtn = document.getElementById("continent-btn");
     ui.volcanoBtn = document.getElementById("volcano-btn");
     ui.moveIconBtn = document.getElementById("move-icon-btn");
-    ui.deleteContinentBtn = document.getElementById("delete-continent-btn");
+    ui.toggleGridBtn = document.getElementById("toggle-grid-btn");
     ui.clearBtn = document.getElementById("clear-btn");
     ui.undoBtn = document.getElementById("undo-btn");
     ui.redoBtn = document.getElementById("redo-btn");
+    ui.printPdfBtn = document.getElementById("print-pdf-btn");
+    ui.copyImageBtn = document.getElementById("copy-image-btn");
     ui.clearPointsBtn = document.getElementById("clear-points-btn");
     ui.clearArrowsBtn = document.getElementById("clear-arrows-btn");
     ui.clearDividesBtn = document.getElementById("clear-divides-btn");
@@ -200,10 +204,18 @@
     if (ui.moveIconBtn) {
       ui.moveIconBtn.addEventListener("click", toggleMoveIcon);
     }
-    ui.deleteContinentBtn.addEventListener("click", handleDeleteContinent);
+    if (ui.toggleGridBtn) {
+      ui.toggleGridBtn.addEventListener("click", toggleGrid);
+    }
     ui.clearBtn.addEventListener("click", handleClearAll);
     ui.undoBtn.addEventListener("click", handleUndo);
     ui.redoBtn.addEventListener("click", handleRedo);
+    if (ui.printPdfBtn) {
+      ui.printPdfBtn.addEventListener("click", handlePrintPdf);
+    }
+    if (ui.copyImageBtn) {
+      ui.copyImageBtn.addEventListener("click", handleCopyImage);
+    }
     ui.clearPointsBtn.addEventListener("click", handleClearPoints);
     ui.clearArrowsBtn.addEventListener("click", handleClearArrows);
     if (ui.clearDividesBtn) {
@@ -370,6 +382,319 @@
   function handleRollAllDirections() {
     cancelClearConfirm();
     rollAllPlateCenters("direction");
+  }
+
+  function isClipboardImageSupported() {
+    return (
+      typeof window.ClipboardItem !== "undefined" &&
+      !!navigator.clipboard &&
+      typeof navigator.clipboard.write === "function"
+    );
+  }
+
+  function getExportBoardCss(scale = 1) {
+    const safeScale = Math.max(1, Number(scale) || 1);
+    const scaled = (value) => (value / safeScale).toFixed(4);
+    return [
+      `.grid-line{stroke:rgba(27,26,23,0.2);stroke-width:${scaled(0.25)};}`,
+      `.grid-line-strong{stroke:rgba(27,26,23,0.35);stroke-width:${scaled(0.8)};}`,
+      `.grid-border{stroke:rgba(27,26,23,0.35);stroke-width:${scaled(0.9)};fill:none;}`,
+      ".pending-fill{fill:rgba(20,20,20,0.14);}",
+      ".cell-dot{fill:#000;}",
+      `.plate-node-active{fill:none;stroke:#000;stroke-width:${scaled(0.9)};}`,
+      ".pencil-line{stroke-linecap:round;stroke-linejoin:round;}",
+      `.pencil-line.plate-boundary{stroke:rgba(29,26,22,0.6);stroke-width:${scaled(
+        0.43
+      )};}`,
+      `.pencil-line.plate-divergent{stroke:rgba(14,12,10,0.95);stroke-width:${scaled(
+        0.72
+      )};}`,
+      `.pencil-line.plate-convergent-base{stroke:rgba(29,26,22,0.6);stroke-width:${scaled(
+        0.43
+      )};}`,
+      `.pencil-line.plate-convergent-zigzag{fill:none;stroke:rgba(14,12,10,0.98);stroke-width:${scaled(
+        0.74
+      )};}`,
+      `.pencil-line.plate-oblique-curve{fill:none;stroke:rgba(14,12,10,0.97);stroke-width:${scaled(
+        0.72
+      )};}`,
+      `.arrow-line{stroke:rgba(14,12,10,0.96);stroke-width:${scaled(
+        0.92
+      )};stroke-linecap:round;stroke-linejoin:round;}`,
+      `.divide-line{stroke:rgba(14,12,10,0.96);stroke-width:${scaled(
+        1
+      )};stroke-dasharray:${scaled(6)} ${scaled(
+        4
+      )};stroke-linecap:round;stroke-linejoin:round;}`,
+    ].join("");
+  }
+
+  function getExportMarkerCss() {
+    return [
+      '.marker-text{fill:#1d1a16;font-family:"Segoe UI",sans-serif;font-weight:600;}',
+      ".marker-text.selected{stroke:rgba(255,255,255,0.9);stroke-width:1.05;paint-order:stroke;}",
+    ].join("");
+  }
+
+  function sanitizeExportSvgMarkup(markup) {
+    return String(markup || "").replace(/var\(--ink\)/g, "#1d1a16");
+  }
+
+  function buildExportBoardSvgMarkup(content, scale = 1) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}"><style>${getExportBoardCss(
+      scale
+    )}</style><rect x="0" y="0" width="${WIDTH}" height="${HEIGHT}" fill="#fff" />${content}</svg>`;
+  }
+
+  function buildExportMarkerSvgMarkup(content) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}"><style>${getExportMarkerCss()}</style>${content}</svg>`;
+  }
+
+  function loadSvgMarkupAsImage(svgMarkup) {
+    return new Promise((resolve, reject) => {
+      const blob = new Blob([svgMarkup], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const image = new Image();
+      image.decoding = "async";
+      image.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(image);
+      };
+      image.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Could not render SVG export image."));
+      };
+      image.src = url;
+    });
+  }
+
+  function canvasToBlob(canvas, type = "image/png") {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error("Could not create export image blob."));
+          return;
+        }
+        resolve(blob);
+      }, type);
+    });
+  }
+
+  function getComputedSvgStyleText(element) {
+    const computed = window.getComputedStyle(element);
+    const props = [
+      "fill",
+      "fill-opacity",
+      "stroke",
+      "stroke-opacity",
+      "stroke-width",
+      "stroke-dasharray",
+      "stroke-dashoffset",
+      "stroke-linecap",
+      "stroke-linejoin",
+      "stroke-miterlimit",
+      "opacity",
+      "vector-effect",
+      "paint-order",
+      "font-family",
+      "font-size",
+      "font-weight",
+      "font-style",
+      "letter-spacing",
+      "text-anchor",
+      "dominant-baseline",
+    ];
+    const chunks = [];
+    props.forEach((prop) => {
+      const value = computed.getPropertyValue(prop);
+      const trimmed = value ? value.trim() : "";
+      if (!trimmed) {
+        return;
+      }
+      if (prop === "stroke-dasharray" && trimmed === "none") {
+        return;
+      }
+      chunks.push(`${prop}:${trimmed};`);
+    });
+    return chunks.join("");
+  }
+
+  function serializeSvgWithComputedStyles(svgElement, widthPx, heightPx) {
+    if (!svgElement) {
+      return "";
+    }
+    const clone = svgElement.cloneNode(true);
+    const sourceElements = [svgElement, ...svgElement.querySelectorAll("*")];
+    const cloneElements = [clone, ...clone.querySelectorAll("*")];
+    const total = Math.min(sourceElements.length, cloneElements.length);
+    for (let i = 0; i < total; i += 1) {
+      const styleText = getComputedSvgStyleText(sourceElements[i]);
+      if (styleText) {
+        cloneElements[i].setAttribute("style", styleText);
+      } else {
+        cloneElements[i].removeAttribute("style");
+      }
+      cloneElements[i].removeAttribute("class");
+    }
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clone.setAttribute("width", String(widthPx));
+    clone.setAttribute("height", String(heightPx));
+    if (!clone.getAttribute("viewBox")) {
+      clone.setAttribute("viewBox", `0 0 ${WIDTH} ${HEIGHT}`);
+    }
+    return new XMLSerializer().serializeToString(clone);
+  }
+
+  async function buildPrintScreenshotCanvas(scale = 3) {
+    if (!ui.boardStack || !ui.board) {
+      throw new Error("Board is not ready.");
+    }
+    if (document.fonts && document.fonts.ready) {
+      try {
+        await document.fonts.ready;
+      } catch (error) {
+        // Ignore font readiness errors and continue with available fonts.
+      }
+    }
+    drawContinents();
+    const rect = ui.boardStack.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      throw new Error("Board size is invalid.");
+    }
+    const safeScale = Math.max(1, Math.min(6, Number(scale) || 3));
+    const widthPx = Math.max(1, Math.round(rect.width * safeScale));
+    const heightPx = Math.max(1, Math.round(rect.height * safeScale));
+    const screenshotCanvas = document.createElement("canvas");
+    screenshotCanvas.width = widthPx;
+    screenshotCanvas.height = heightPx;
+    const context = screenshotCanvas.getContext("2d");
+    if (!context) {
+      throw new Error("Could not initialize screenshot canvas context.");
+    }
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, widthPx, heightPx);
+
+    const boardMarkup = serializeSvgWithComputedStyles(ui.board, widthPx, heightPx);
+    const boardImage = await loadSvgMarkupAsImage(boardMarkup);
+    context.drawImage(boardImage, 0, 0, widthPx, heightPx);
+
+    if (ui.continentCanvas) {
+      context.drawImage(ui.continentCanvas, 0, 0, widthPx, heightPx);
+    }
+
+    if (ui.markerLayer && ui.markerLayer.childNodes.length > 0) {
+      const markerMarkup = serializeSvgWithComputedStyles(
+        ui.markerLayer,
+        widthPx,
+        heightPx
+      );
+      const markerImage = await loadSvgMarkupAsImage(markerMarkup);
+      context.drawImage(markerImage, 0, 0, widthPx, heightPx);
+    }
+
+    return screenshotCanvas;
+  }
+
+  async function buildExportCanvas(scale = EXPORT_SCALE) {
+    if (!ui.board) {
+      throw new Error("Board is not ready.");
+    }
+    drawContinents();
+    const boardContent = sanitizeExportSvgMarkup(buildSvg());
+    const markerContent = sanitizeExportSvgMarkup(buildMarkerSvg());
+    const exportScale = Math.max(1, Math.min(12, Number(scale) || EXPORT_SCALE));
+    const exportCanvas = document.createElement("canvas");
+    const widthPx = Math.max(1, Math.round(WIDTH * exportScale));
+    const heightPx = Math.max(1, Math.round(HEIGHT * exportScale));
+    exportCanvas.width = widthPx;
+    exportCanvas.height = heightPx;
+    const context = exportCanvas.getContext("2d");
+    if (!context) {
+      throw new Error("Could not initialize export canvas context.");
+    }
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, widthPx, heightPx);
+
+    const boardImage = await loadSvgMarkupAsImage(
+      buildExportBoardSvgMarkup(boardContent, exportScale)
+    );
+    context.drawImage(boardImage, 0, 0, widthPx, heightPx);
+
+    if (ui.continentCanvas) {
+      context.drawImage(ui.continentCanvas, 0, 0, widthPx, heightPx);
+    }
+
+    if (markerContent.trim()) {
+      const markerImage = await loadSvgMarkupAsImage(
+        buildExportMarkerSvgMarkup(markerContent)
+      );
+      context.drawImage(markerImage, 0, 0, widthPx, heightPx);
+    }
+
+    return exportCanvas;
+  }
+
+  function getPrintDocumentHtml(imageDataUrl) {
+    return `<!doctype html><html><head><meta charset="utf-8" /><title>Plate Tectonics Board</title><style>@page{size:A4 landscape;margin:0;}html,body{margin:0;padding:0;background:#fff;height:100%;}body{display:flex;align-items:center;justify-content:center;}img{width:100vw;height:auto;max-height:100vh;object-fit:contain;display:block;}</style></head><body><img src="${imageDataUrl}" alt="Plate tectonics board export" /></body></html>`;
+  }
+
+  async function handlePrintPdf() {
+    cancelClearConfirm();
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      setMessage("Popup blocked. Allow popups to print PDF.");
+      render();
+      return;
+    }
+    printWindow.document.write(
+      "<!doctype html><html><body><p>Preparing PDF...</p></body></html>"
+    );
+    printWindow.document.close();
+    try {
+      const screenshotCanvas = await buildPrintScreenshotCanvas(3);
+      const dataUrl = screenshotCanvas.toDataURL("image/png");
+      printWindow.document.open();
+      printWindow.document.write(getPrintDocumentHtml(dataUrl));
+      printWindow.document.close();
+      window.setTimeout(() => {
+        try {
+          printWindow.focus();
+          printWindow.print();
+          printWindow.onafterprint = () => {
+            printWindow.close();
+          };
+        } catch (error) {
+          // Ignore post-open print errors.
+        }
+      }, 160);
+      setMessage("Print dialog opened. Choose Save as PDF.");
+    } catch (error) {
+      printWindow.close();
+      setMessage("Could not prepare PDF export.");
+    }
+    render();
+  }
+
+  async function handleCopyImage() {
+    cancelClearConfirm();
+    if (!isClipboardImageSupported()) {
+      setMessage("Copy image is not supported in this browser.");
+      render();
+      return;
+    }
+    try {
+      const exportCanvas = await buildExportCanvas();
+      const blob = await canvasToBlob(exportCanvas, "image/png");
+      await navigator.clipboard.write([
+        new window.ClipboardItem({
+          "image/png": blob,
+        }),
+      ]);
+      setMessage("Image copied to clipboard.");
+    } catch (error) {
+      setMessage("Could not copy image.");
+    }
+    render();
   }
 
   function isPlateConnectablePointKey(key) {
@@ -1809,6 +2134,13 @@
 
   function toggleMoveIcon() {
     setTool("move-icon");
+  }
+
+  function toggleGrid() {
+    cancelClearConfirm();
+    state.showGrid = !state.showGrid;
+    setMessage(state.showGrid ? "Grid shown." : "Grid hidden.");
+    render();
   }
 
   function getPlateStyleLabel(style) {
@@ -4262,6 +4594,9 @@
       ui.connectPointsBtn.disabled =
         getConnectablePlatePointCount() < 2 || plateBoundaryCount > 0;
     }
+    if (ui.copyImageBtn) {
+      ui.copyImageBtn.disabled = !isClipboardImageSupported();
+    }
     ui.clearBtn.disabled = !hasMarks();
     ui.clearBtn.textContent = state.clearConfirm ? "Confirm restart" : "Restart";
     ui.undoBtn.disabled = state.history.length === 0;
@@ -4298,6 +4633,11 @@
     if (ui.moveIconBtn) {
       ui.moveIconBtn.setAttribute("aria-pressed", state.tool === "move-icon");
       ui.moveIconBtn.classList.toggle("active", state.tool === "move-icon");
+    }
+    if (ui.toggleGridBtn) {
+      ui.toggleGridBtn.setAttribute("aria-pressed", state.showGrid);
+      ui.toggleGridBtn.classList.toggle("active", state.showGrid);
+      ui.toggleGridBtn.textContent = state.showGrid ? "Hide grid" : "Show grid";
     }
     if (ui.paintContinentBtn) {
       ui.paintContinentBtn.setAttribute(
@@ -4373,7 +4713,6 @@
       ui.wrapRightBtn.setAttribute("aria-pressed", state.wrapSide === "right");
       ui.wrapRightBtn.classList.toggle("active", state.wrapSide === "right");
     }
-    ui.deleteContinentBtn.disabled = !state.selectedContinentId;
     ui.board.classList.toggle("pencil-active", isLineTool(state.tool));
     document.body.dataset.tool = state.tool;
     ui.board.innerHTML = buildSvg();
@@ -4422,23 +4761,25 @@
       `<defs><marker id="arrow-head" markerUnits="userSpaceOnUse" markerWidth="${arrowSizeText}" markerHeight="${arrowSizeText}" viewBox="0 0 ${arrowSizeText} ${arrowSizeText}" refX="${arrowSizeText}" refY="${arrowHalfText}" orient="auto"><path d="M ${arrowTailXText} ${arrowTopText} L ${arrowTipXText} ${arrowHalfText} L ${arrowTailXText} ${arrowBottomText}" fill="none" stroke="var(--ink)" stroke-width="${arrowStrokeText}" stroke-linecap="round" stroke-linejoin="round" /></marker></defs>`
     );
 
-    for (let i = 1; i < GRID; i += 1) {
-      const x = (cellW * i).toFixed(2);
+    if (state.showGrid) {
+      for (let i = 1; i < GRID; i += 1) {
+        const x = (cellW * i).toFixed(2);
+        parts.push(
+          `<line class="grid-line" x1="${x}" y1="0" x2="${x}" y2="${HEIGHT}" />`
+        );
+      }
+
+      for (let i = 1; i < GRID; i += 1) {
+        const y = (cellH * i).toFixed(2);
+        parts.push(
+          `<line class="grid-line" x1="0" y1="${y}" x2="${WIDTH}" y2="${y}" />`
+        );
+      }
+
       parts.push(
-        `<line class="grid-line" x1="${x}" y1="0" x2="${x}" y2="${HEIGHT}" />`
+        `<rect class="grid-border" x="0.5" y="0.5" width="${WIDTH - 1}" height="${HEIGHT - 1}" />`
       );
     }
-
-    for (let i = 1; i < GRID; i += 1) {
-      const y = (cellH * i).toFixed(2);
-      parts.push(
-        `<line class="grid-line" x1="0" y1="${y}" x2="${WIDTH}" y2="${y}" />`
-      );
-    }
-
-    parts.push(
-      `<rect class="grid-border" x="0.5" y="0.5" width="${WIDTH - 1}" height="${HEIGHT - 1}" />`
-    );
 
     state.lines.forEach((line) => {
       const lineType = line.lineType || "plate";
