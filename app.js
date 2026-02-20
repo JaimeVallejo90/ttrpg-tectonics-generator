@@ -68,6 +68,11 @@
     oblique: "oblique",
   };
   const DEFAULT_SURFACE_BRUSH_RADIUS = 4;
+  const AUTO_ROLL_SAMPLE_COLS = GRID * 12;
+  const AUTO_ROLL_SAMPLE_ROWS = Math.max(
+    GRID,
+    Math.round((AUTO_ROLL_SAMPLE_COLS * HEIGHT) / WIDTH)
+  );
 
   const state = {
     selectedCells: new Set(),
@@ -112,6 +117,8 @@
     ui.board = document.getElementById("board");
     ui.rollBtn = document.getElementById("roll-btn");
     ui.rollSixBtn = document.getElementById("roll-6-btn");
+    ui.rollAllCrustsBtn = document.getElementById("roll-all-crusts-btn");
+    ui.rollAllDirectionsBtn = document.getElementById("roll-all-directions-btn");
     ui.pencilBtn = document.getElementById("pencil-btn");
     ui.arrowBtn = document.getElementById("arrow-btn");
     ui.divideBtn = document.getElementById("divide-btn");
@@ -141,10 +148,12 @@
     ui.markerLayer = document.getElementById("marker-layer");
     ui.continentHint = document.getElementById("continent-hint");
     ui.header = document.querySelector(".app-header");
+    ui.workspacePanel = document.querySelector(".workspace-panel");
     ui.boardStack = document.querySelector(".board-stack");
     ui.edgeControls = document.getElementById("edge-controls");
     ui.wrapLeftBtn = document.getElementById("wrap-left-btn");
     ui.wrapRightBtn = document.getElementById("wrap-right-btn");
+    ui.autoRollPanel = document.getElementById("auto-roll-panel");
     ui.plateModePanel = document.getElementById("plate-mode-panel");
     ui.plateBoundaryBtn = document.getElementById("plate-boundary-btn");
     ui.plateDivergentBtn = document.getElementById("plate-divergent-btn");
@@ -177,6 +186,12 @@
 
     ui.rollBtn.addEventListener("click", handleRoll);
     ui.rollSixBtn.addEventListener("click", handleRollSix);
+    if (ui.rollAllCrustsBtn) {
+      ui.rollAllCrustsBtn.addEventListener("click", handleRollAllCrusts);
+    }
+    if (ui.rollAllDirectionsBtn) {
+      ui.rollAllDirectionsBtn.addEventListener("click", handleRollAllDirections);
+    }
     ui.pencilBtn.addEventListener("click", togglePencil);
     ui.arrowBtn.addEventListener("click", toggleArrow);
     if (ui.divideBtn) {
@@ -281,9 +296,18 @@
     }
     window.addEventListener("resize", handleResize);
     window.addEventListener("keydown", handleKeydown);
+    if (ui.workspacePanel) {
+      ui.workspacePanel.addEventListener("animationend", scheduleEdgeControlsLayout);
+    }
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(() => {
+        scheduleEdgeControlsLayout();
+      });
+    }
 
     updateHeaderOffset();
     render();
+    updateRightPanelOffset();
   }
 
   function recordHistory(entry) {
@@ -355,12 +379,452 @@
     render();
   }
 
+  function handleRollAllCrusts() {
+    cancelClearConfirm();
+    rollAllPlateCenters("crust");
+  }
+
+  function handleRollAllDirections() {
+    cancelClearConfirm();
+    rollAllPlateCenters("direction");
+  }
+
   function rollRandomPoint() {
     const col = rollD20();
     const row = rollD20();
     const microCol = col - 1;
     const microRow = row - 1;
     return addCell(microCol, microRow, col, row);
+  }
+
+  function getPlateLineCount() {
+    let count = 0;
+    state.lines.forEach((line) => {
+      if ((line.lineType || "plate") === "plate") {
+        count += 1;
+      }
+    });
+    return count;
+  }
+
+  function collectPlateBarrierSegments() {
+    const segments = [];
+    state.lines.forEach((line) => {
+      if ((line.lineType || "plate") !== "plate") {
+        return;
+      }
+      getLineHitSegments(line).forEach((segment) => {
+        segments.push({
+          x1: segment.x1,
+          y1: segment.y1,
+          x2: segment.x2,
+          y2: segment.y2,
+        });
+      });
+    });
+    return segments;
+  }
+
+  function markBarrierDisk(mask, cols, rows, x, y, radiusX, radiusY) {
+    const minCol = clamp(Math.floor((x - radiusX) / WIDTH * cols), 0, cols - 1);
+    const maxCol = clamp(Math.floor((x + radiusX) / WIDTH * cols), 0, cols - 1);
+    const minRow = clamp(Math.floor((y - radiusY) / HEIGHT * rows), 0, rows - 1);
+    const maxRow = clamp(Math.floor((y + radiusY) / HEIGHT * rows), 0, rows - 1);
+    const rxSq = Math.max(0.0001, radiusX * radiusX);
+    const rySq = Math.max(0.0001, radiusY * radiusY);
+    const cellW = WIDTH / cols;
+    const cellH = HEIGHT / rows;
+    for (let row = minRow; row <= maxRow; row += 1) {
+      const cy = (row + 0.5) * cellH;
+      const dy = cy - y;
+      for (let col = minCol; col <= maxCol; col += 1) {
+        const cx = (col + 0.5) * cellW;
+        const dx = cx - x;
+        if ((dx * dx) / rxSq + (dy * dy) / rySq <= 1) {
+          mask[row * cols + col] = 1;
+        }
+      }
+    }
+  }
+
+  function buildBarrierMaskForAutoRoll(segments, cols, rows) {
+    const mask = new Uint8Array(cols * rows);
+    const seamBlocked = new Uint8Array(rows);
+    if (!segments.length) {
+      return { mask, seamBlocked };
+    }
+    const sampleStep = Math.max(0.5, Math.min(WIDTH / cols, HEIGHT / rows) * 0.36);
+    const brushRadius = Math.max(0.65, Math.min(WIDTH / cols, HEIGHT / rows) * 0.9);
+    const seamMargin = Math.max(brushRadius * 1.05, WIDTH / cols * 0.9);
+    const seamRadiusRows = Math.max(1, Math.ceil(brushRadius / (HEIGHT / rows)));
+
+    segments.forEach((segment) => {
+      const dx = segment.x2 - segment.x1;
+      const dy = segment.y2 - segment.y1;
+      const length = Math.hypot(dx, dy);
+      const steps = Math.max(1, Math.ceil(length / sampleStep));
+      for (let i = 0; i <= steps; i += 1) {
+        const t = i / steps;
+        const x = segment.x1 + dx * t;
+        const y = segment.y1 + dy * t;
+        markBarrierDisk(mask, cols, rows, x, y, brushRadius, brushRadius);
+        if (x <= seamMargin || x >= WIDTH - seamMargin) {
+          const centerRow = clamp(Math.floor((y / HEIGHT) * rows), 0, rows - 1);
+          const startRow = Math.max(0, centerRow - seamRadiusRows);
+          const endRow = Math.min(rows - 1, centerRow + seamRadiusRows);
+          for (let row = startRow; row <= endRow; row += 1) {
+            seamBlocked[row] = 1;
+          }
+        }
+      }
+    });
+
+    return { mask, seamBlocked };
+  }
+
+  function buildDistanceMapFromBarrierMask(mask, cols, rows) {
+    const maxDistance = 65535;
+    const distances = new Uint16Array(cols * rows);
+    distances.fill(maxDistance);
+    const queue = [];
+
+    for (let i = 0; i < mask.length; i += 1) {
+      if (mask[i]) {
+        distances[i] = 0;
+        queue.push(i);
+      }
+    }
+    if (queue.length === 0) {
+      return distances;
+    }
+
+    for (let head = 0; head < queue.length; head += 1) {
+      const index = queue[head];
+      const currentDistance = distances[index];
+      const row = Math.floor(index / cols);
+      const col = index - row * cols;
+      const nextDistance = currentDistance + 1;
+
+      const neighborCols = [(col + 1) % cols, (col - 1 + cols) % cols];
+      for (let i = 0; i < neighborCols.length; i += 1) {
+        const neighborIndex = row * cols + neighborCols[i];
+        if (nextDistance < distances[neighborIndex]) {
+          distances[neighborIndex] = nextDistance;
+          queue.push(neighborIndex);
+        }
+      }
+
+      if (row + 1 < rows) {
+        const downIndex = (row + 1) * cols + col;
+        if (nextDistance < distances[downIndex]) {
+          distances[downIndex] = nextDistance;
+          queue.push(downIndex);
+        }
+      }
+      if (row - 1 >= 0) {
+        const upIndex = (row - 1) * cols + col;
+        if (nextDistance < distances[upIndex]) {
+          distances[upIndex] = nextDistance;
+          queue.push(upIndex);
+        }
+      }
+    }
+
+    return distances;
+  }
+
+  function collectFloodRegionFromSampleGrid(
+    startCol,
+    startRow,
+    cols,
+    rows,
+    cellW,
+    cellH,
+    mask,
+    seamBlocked,
+    visited
+  ) {
+    const queue = [{ col: startCol, row: startRow }];
+    let readIndex = 0;
+    visited[startRow * cols + startCol] = 1;
+    const twoPi = Math.PI * 2;
+    let count = 0;
+    let sumY = 0;
+    let sumSin = 0;
+    let sumCos = 0;
+    const cells = [];
+
+    while (readIndex < queue.length) {
+      const current = queue[readIndex];
+      readIndex += 1;
+      const currentIndex = current.row * cols + current.col;
+      cells.push(currentIndex);
+      count += 1;
+      const x = (current.col + 0.5) * cellW;
+      const y = (current.row + 0.5) * cellH;
+      const angle = (x / WIDTH) * twoPi;
+      sumSin += Math.sin(angle);
+      sumCos += Math.cos(angle);
+      sumY += y;
+
+      const neighbors = [
+        { col: current.col + 1, row: current.row, seamRow: current.row },
+        { col: current.col - 1, row: current.row, seamRow: current.row },
+        { col: current.col, row: current.row + 1, seamRow: null },
+        { col: current.col, row: current.row - 1, seamRow: null },
+      ];
+
+      neighbors.forEach((neighbor) => {
+        const nextRow = neighbor.row;
+        if (nextRow < 0 || nextRow >= rows) {
+          return;
+        }
+        let nextCol = neighbor.col;
+        if (nextCol < 0 || nextCol >= cols) {
+          if (neighbor.seamRow !== null && seamBlocked[neighbor.seamRow]) {
+            return;
+          }
+          nextCol = (nextCol + cols) % cols;
+        }
+        const nextIndex = nextRow * cols + nextCol;
+        if (visited[nextIndex] || mask[nextIndex]) {
+          return;
+        }
+        visited[nextIndex] = 1;
+        queue.push({ col: nextCol, row: nextRow });
+      });
+    }
+
+    if (count <= 0) {
+      return null;
+    }
+    let centerX = WIDTH / 2;
+    if (Math.abs(sumSin) > 0.0001 || Math.abs(sumCos) > 0.0001) {
+      const angle = Math.atan2(sumSin, sumCos);
+      centerX = ((angle < 0 ? angle + twoPi : angle) / twoPi) * WIDTH;
+    }
+    return {
+      size: count,
+      cells,
+      meanX: centerX,
+      meanY: sumY / count,
+    };
+  }
+
+  function chooseAutoRollRegionCenter(region, cols, cellW, cellH, distanceMap) {
+    if (!region || !region.cells || region.cells.length === 0) {
+      return { x: WIDTH / 2, y: HEIGHT / 2 };
+    }
+    let bestIndex = region.cells[0];
+    let bestDistance = -1;
+    let bestTieDistance = Infinity;
+    region.cells.forEach((index) => {
+      const row = Math.floor(index / cols);
+      const col = index - row * cols;
+      const x = (col + 0.5) * cellW;
+      const y = (row + 0.5) * cellH;
+      const distance = distanceMap[index];
+      const rawDx = Math.abs(x - region.meanX);
+      const dx = Math.min(rawDx, WIDTH - rawDx);
+      const dy = y - region.meanY;
+      const tieDistance = dx * dx + dy * dy;
+      if (distance > bestDistance) {
+        bestDistance = distance;
+        bestTieDistance = tieDistance;
+        bestIndex = index;
+        return;
+      }
+      if (distance === bestDistance && tieDistance < bestTieDistance) {
+        bestTieDistance = tieDistance;
+        bestIndex = index;
+      }
+    });
+    const row = Math.floor(bestIndex / cols);
+    const col = bestIndex - row * cols;
+    return {
+      x: (col + 0.5) * cellW,
+      y: (row + 0.5) * cellH,
+    };
+  }
+
+  function detectPlateRegions() {
+    const segments = collectPlateBarrierSegments();
+    if (!segments.length) {
+      return [];
+    }
+
+    const cols = AUTO_ROLL_SAMPLE_COLS;
+    const rows = AUTO_ROLL_SAMPLE_ROWS;
+    const cellW = WIDTH / cols;
+    const cellH = HEIGHT / rows;
+    const { mask, seamBlocked } = buildBarrierMaskForAutoRoll(segments, cols, rows);
+    const distanceMap = buildDistanceMapFromBarrierMask(mask, cols, rows);
+    const visited = new Uint8Array(cols * rows);
+    const regions = [];
+    const minArea = Math.max(10, Math.round(cols * rows * 0.0003));
+
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = 0; col < cols; col += 1) {
+        const index = row * cols + col;
+        if (visited[index] || mask[index]) {
+          continue;
+        }
+        const region = collectFloodRegionFromSampleGrid(
+          col,
+          row,
+          cols,
+          rows,
+          cellW,
+          cellH,
+          mask,
+          seamBlocked,
+          visited
+        );
+        if (!region || region.size < minArea) {
+          continue;
+        }
+        regions.push({
+          size: region.size,
+          center: chooseAutoRollRegionCenter(region, cols, cellW, cellH, distanceMap),
+        });
+      }
+    }
+
+    regions.sort((a, b) => b.size - a.size);
+    return regions;
+  }
+
+  function dedupeAutoRollRegions(regions) {
+    if (!regions || regions.length <= 1) {
+      return regions || [];
+    }
+    const minDistance = Math.max(2.2, Math.min(microW, microH) * 1.08);
+    const minDistanceSq = minDistance * minDistance;
+    const deduped = [];
+
+    regions.forEach((region) => {
+      const duplicate = deduped.some((candidate) => {
+        const rawDx = Math.abs(region.center.x - candidate.center.x);
+        const dx = Math.min(rawDx, WIDTH - rawDx);
+        const dy = region.center.y - candidate.center.y;
+        return dx * dx + dy * dy <= minDistanceSq;
+      });
+      if (!duplicate) {
+        deduped.push(region);
+      }
+    });
+
+    return deduped;
+  }
+
+  function getAutoRollMarkerPadding() {
+    return Math.max(2, markerIconSize * 0.9);
+  }
+
+  function clampAutoRollPoint(point) {
+    const padding = getAutoRollMarkerPadding();
+    return {
+      x: clamp(point.x, padding, WIDTH - padding),
+      y: clamp(point.y, padding, HEIGHT - padding),
+    };
+  }
+
+  function createAutoMarkerFromType(markerType, point) {
+    const safePoint = clampAutoRollPoint(point);
+    if (markerType === "crust") {
+      const roll = rollD6();
+      let crustType = "mixed";
+      if (roll <= 2) {
+        crustType = "ocean";
+      } else if (roll === 6) {
+        crustType = "continent";
+      }
+      return createMarker("crust", safePoint, crustType);
+    }
+    if (markerType === "direction") {
+      const padding = getAutoRollMarkerPadding();
+      const offset = Math.min(microW, microH) * 0.86;
+      let offsetX = safePoint.x + offset;
+      if (offsetX > WIDTH - padding) {
+        offsetX = safePoint.x - offset;
+      }
+      if (offsetX < padding) {
+        offsetX = safePoint.x + offset;
+      }
+      const offsetPoint = {
+        x: clamp(offsetX, padding, WIDTH - padding),
+        y: safePoint.y,
+      };
+      return createMarker("direction", offsetPoint, rollD6());
+    }
+    return null;
+  }
+
+  function rollAllPlateCenters(markerType) {
+    if (getPlateLineCount() === 0) {
+      setMessage("Paint boundaries first to auto roll by plate.");
+      render();
+      return;
+    }
+
+    const regions = dedupeAutoRollRegions(detectPlateRegions());
+    if (!regions.length) {
+      setMessage("No plate regions detected.");
+      render();
+      return;
+    }
+
+    let created = 0;
+    let oceanic = 0;
+    let mixed = 0;
+    let continental = 0;
+    const directionCount = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+
+    regions.forEach((region) => {
+      const marker = createAutoMarkerFromType(markerType, region.center);
+      if (!marker) {
+        return;
+      }
+      state.markers.push(marker);
+      recordHistory({
+        type: "marker-add",
+        marker: cloneMarker(marker),
+        index: state.markers.length - 1,
+      });
+      created += 1;
+      if (markerType === "crust") {
+        if (marker.value === "ocean") {
+          oceanic += 1;
+        } else if (marker.value === "continent") {
+          continental += 1;
+        } else {
+          mixed += 1;
+        }
+      } else if (markerType === "direction") {
+        directionCount[marker.value] = (directionCount[marker.value] || 0) + 1;
+      }
+    });
+
+    if (created === 0) {
+      setMessage("No markers were created.");
+      render();
+      return;
+    }
+
+    if (markerType === "crust") {
+      setMessage(
+        `Rolled crust for ${created} plates (oceanic: ${oceanic}, mixed: ${mixed}, continental: ${continental}).`
+      );
+    } else if (markerType === "direction") {
+      const summary = [1, 2, 3, 4, 5, 6]
+        .map((value) => `${directionLabels[value]}:${directionCount[value] || 0}`)
+        .join(", ");
+      setMessage(`Rolled directions for ${created} plates (${summary}).`);
+    } else {
+      setMessage(`Auto roll created ${created} markers.`);
+    }
+
+    render();
   }
 
   function isLineTool(tool) {
@@ -2728,32 +3192,40 @@
       window.cancelAnimationFrame(overlayRenderFrame);
       overlayRenderFrame = null;
     }
+    let toolModeLabel = "Roll";
     if (state.tool === "pencil") {
-      ui.toolMode.textContent = "Paint Boundaries";
+      toolModeLabel = "Paint Boundaries";
     } else if (state.tool === "arrow") {
-      ui.toolMode.textContent = "Paint arrows";
+      toolModeLabel = "Paint arrows";
     } else if (state.tool === "divide") {
-      ui.toolMode.textContent = "Paint Divides";
+      toolModeLabel = "Paint Divides";
     } else if (state.tool === "crust") {
-      ui.toolMode.textContent = "Roll crust";
+      toolModeLabel = "Roll crust";
     } else if (state.tool === "plate-id") {
-      ui.toolMode.textContent = "Identify plates";
+      toolModeLabel = "Identify plates";
     } else if (state.tool === "direction") {
-      ui.toolMode.textContent = "Roll directions";
+      toolModeLabel = "Roll directions";
     } else if (state.tool === "continent") {
-      ui.toolMode.textContent = "Paint Cratons";
+      toolModeLabel = "Paint Cratons";
     } else if (state.tool === "paint-continent") {
-      ui.toolMode.textContent = "Paint Continents";
+      toolModeLabel = "Paint Continents";
     } else if (state.tool === "paint-ocean") {
-      ui.toolMode.textContent = "Paint Oceans";
+      toolModeLabel = "Paint Oceans";
     } else if (state.tool === "volcano") {
-      ui.toolMode.textContent = "Add volcanoes";
-    } else {
-      ui.toolMode.textContent = "Roll";
+      toolModeLabel = "Add volcanoes";
     }
-    ui.lastSector.textContent = formatLastX();
-    ui.lastCell.textContent = formatLastY();
-    ui.filled.textContent = state.selectedCells.size;
+    if (ui.toolMode) {
+      ui.toolMode.textContent = toolModeLabel;
+    }
+    if (ui.lastSector) {
+      ui.lastSector.textContent = formatLastX();
+    }
+    if (ui.lastCell) {
+      ui.lastCell.textContent = formatLastY();
+    }
+    if (ui.filled) {
+      ui.filled.textContent = state.selectedCells.size;
+    }
     const markerCounts = countMarkersByType();
     const arrowCount = state.lines.filter(
       (line) => (line.lineType || "plate") === "arrow"
@@ -2761,8 +3233,15 @@
     const divideCount = state.lines.filter(
       (line) => (line.lineType || "plate") === "divide"
     ).length;
+    const plateBoundaryCount = getPlateLineCount();
     ui.rollBtn.disabled = state.selectedCells.size >= TOTAL_CELLS;
     ui.rollSixBtn.disabled = state.selectedCells.size >= TOTAL_CELLS;
+    if (ui.rollAllCrustsBtn) {
+      ui.rollAllCrustsBtn.disabled = plateBoundaryCount === 0;
+    }
+    if (ui.rollAllDirectionsBtn) {
+      ui.rollAllDirectionsBtn.disabled = plateBoundaryCount === 0;
+    }
     ui.clearBtn.disabled = !hasMarks();
     ui.clearBtn.textContent = state.clearConfirm ? "Confirm restart" : "Restart";
     ui.undoBtn.disabled = state.history.length === 0;
@@ -3172,14 +3651,21 @@
   }
 
   function updateRightPanelOffset() {
-    let offset = 0;
+    const panelGap = 14;
+    const autoHeight = ui.autoRollPanel ? measurePanelHeight(ui.autoRollPanel) : 0;
+    const plateOffset = autoHeight > 0 ? Math.round(autoHeight + panelGap) : 0;
+    let surfaceOffset = plateOffset;
     if (ui.plateModePanel) {
-      const panelHeight = measurePanelHeight(ui.plateModePanel);
-      offset = Math.round(panelHeight + 14);
+      const plateHeight = measurePanelHeight(ui.plateModePanel);
+      surfaceOffset += Math.round(plateHeight + panelGap);
     }
     document.documentElement.style.setProperty(
+      "--right-tertiary-offset",
+      `${plateOffset}px`
+    );
+    document.documentElement.style.setProperty(
       "--right-secondary-offset",
-      `${offset}px`
+      `${surfaceOffset}px`
     );
   }
 

@@ -26,6 +26,7 @@
   --side-control-gap: 2rem;
   --header-offset: 0px;
   --right-secondary-offset: 0px;
+  --right-tertiary-offset: 0px;
   --left-panel-width: 340px;
   --right-panel-width: 280px;
   --board-left: 0px;
@@ -169,6 +170,7 @@ body {
 }
 
 .control-panel,
+.auto-roll-panel,
 .plate-mode-panel,
 .surface-paint-panel {
   position: fixed;
@@ -185,6 +187,7 @@ body {
   width: var(--left-panel-width);
 }
 
+.auto-roll-panel,
 .plate-mode-panel,
 .surface-paint-panel {
   right: calc(
@@ -193,9 +196,16 @@ body {
   width: var(--right-panel-width);
 }
 
-.plate-mode-panel {
+.auto-roll-panel {
   top: var(--header-offset);
   max-height: calc(100vh - var(--header-offset));
+}
+
+.plate-mode-panel {
+  top: calc(var(--header-offset) + var(--right-tertiary-offset));
+  max-height: calc(
+    100vh - var(--header-offset) - var(--right-tertiary-offset)
+  );
 }
 
 .surface-paint-panel {
@@ -338,12 +348,13 @@ body {
 .status-notes {
   display: grid;
   gap: 0.5rem;
+  min-height: 2.3rem;
 }
 
 .message {
   color: var(--accent);
   font-weight: 600;
-  min-height: 1.2em;
+  min-height: 0;
 }
 
 .status-message {
@@ -351,6 +362,13 @@ body {
   border-radius: 10px;
   background: rgba(200, 98, 45, 0.12);
   border: 1px solid rgba(200, 98, 45, 0.25);
+  min-height: 2.3rem;
+  max-height: 2.3rem;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .hint-line {

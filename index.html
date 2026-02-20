@@ -38,32 +38,12 @@
           <div class="workspace-header">
             <div>
               <div class="section-kicker">Board</div>
-              <h2>Point Cloud Grid</h2>
             </div>
           </div>
 
           <div class="workspace-meta">
-            <div class="status-grid">
-              <div class="status-item">
-                <span class="status-label">Tool</span>
-                <span id="tool-mode" class="status-value">Roll</span>
-              </div>
-              <div class="status-item">
-                <span class="status-label">Filled</span>
-                <span class="status-value"><span id="filled-count">0</span>/400</span>
-              </div>
-              <div class="status-item">
-                <span class="status-label">Last X</span>
-                <span id="last-sector" class="status-value">-</span>
-              </div>
-              <div class="status-item">
-                <span class="status-label">Last Y</span>
-                <span id="last-cell" class="status-value">-</span>
-              </div>
-            </div>
             <div class="status-notes">
               <div id="message" class="message status-message" aria-live="polite"></div>
-              <div id="continent-hint" class="hint-line" aria-live="polite"></div>
             </div>
           </div>
 
@@ -101,7 +81,6 @@
             <div class="panel-title">Step 1: Roll points</div>
             <div class="button-stack">
               <button id="roll-btn" class="primary">Roll a point (2d20)</button>
-              <button id="roll-6-btn" class="secondary">Roll 30 points</button>
             </div>
             <div class="panel-hint">
               Rolls add seed points to the A4 grid. Corner buttons toggle the four
@@ -146,6 +125,21 @@
             <div class="button-stack">
               <button id="delete-continent-btn" class="ghost">Delete craton</button>
               <button id="clear-btn" class="danger">Restart</button>
+            </div>
+          </div>
+        </aside>
+
+        <aside id="auto-roll-panel" class="panel auto-roll-panel">
+          <div class="panel-title">Auto Roll</div>
+          <div class="panel-block">
+            <div class="button-stack">
+              <button id="roll-6-btn" class="secondary">Roll 30 points</button>
+              <button id="roll-all-crusts-btn" class="secondary">Roll all crusts</button>
+              <button id="roll-all-directions-btn" class="secondary">Roll all directions</button>
+            </div>
+            <div class="panel-hint">
+              Detects plate centers from Paint Boundaries and rolls one marker per
+              plate.
             </div>
           </div>
         </aside>
