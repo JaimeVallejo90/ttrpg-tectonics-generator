@@ -140,14 +140,9 @@
     ui.clearPlatesBtn = document.getElementById("clear-plates-btn");
     ui.clearContinentsBtn = document.getElementById("clear-continents-btn");
     ui.clearVolcanoesBtn = document.getElementById("clear-volcanoes-btn");
-    ui.toolMode = document.getElementById("tool-mode");
-    ui.lastSector = document.getElementById("last-sector");
-    ui.lastCell = document.getElementById("last-cell");
-    ui.filled = document.getElementById("filled-count");
     ui.message = document.getElementById("message");
     ui.continentCanvas = document.getElementById("continent-canvas");
     ui.markerLayer = document.getElementById("marker-layer");
-    ui.continentHint = document.getElementById("continent-hint");
     ui.header = document.querySelector(".app-header");
     ui.workspacePanel = document.querySelector(".workspace-panel");
     ui.boardStack = document.querySelector(".board-stack");
@@ -160,10 +155,8 @@
     ui.plateDivergentBtn = document.getElementById("plate-divergent-btn");
     ui.plateConvergentBtn = document.getElementById("plate-convergent-btn");
     ui.plateObliqueBtn = document.getElementById("plate-oblique-btn");
-    ui.plateModeHint = document.getElementById("plate-mode-hint");
     ui.surfacePaintPanel = document.getElementById("surface-paint-panel");
     ui.paintContinentBtn = document.getElementById("paint-continent-btn");
-    ui.paintOceanBtn = document.getElementById("paint-ocean-btn");
     ui.surfaceRadiusSlider = document.getElementById("surface-radius-slider");
     ui.surfaceRadiusValue = document.getElementById("surface-radius-value");
     ui.continentCtx = ui.continentCanvas
@@ -260,9 +253,6 @@
     }
     if (ui.paintContinentBtn) {
       ui.paintContinentBtn.addEventListener("click", togglePaintContinent);
-    }
-    if (ui.paintOceanBtn) {
-      ui.paintOceanBtn.addEventListener("click", togglePaintOcean);
     }
     if (ui.surfaceRadiusSlider) {
       state.surfaceBrushRadius = clampSurfaceBrushRadius(
@@ -397,9 +387,7 @@
     const scaled = (value) => (value / safeScale).toFixed(4);
     return [
       `.grid-line{stroke:rgba(27,26,23,0.2);stroke-width:${scaled(0.25)};}`,
-      `.grid-line-strong{stroke:rgba(27,26,23,0.35);stroke-width:${scaled(0.8)};}`,
       `.grid-border{stroke:rgba(27,26,23,0.35);stroke-width:${scaled(0.9)};fill:none;}`,
-      ".pending-fill{fill:rgba(20,20,20,0.14);}",
       ".cell-dot{fill:#000;}",
       `.plate-node-active{fill:none;stroke:#000;stroke-width:${scaled(0.9)};}`,
       ".pencil-line{stroke-linecap:round;stroke-linejoin:round;}",
@@ -2022,7 +2010,7 @@
   }
 
   function isSurfacePaintTool(tool) {
-    return tool === "paint-continent" || tool === "paint-ocean";
+    return tool === "paint-continent";
   }
 
   function getSurfacePaintTypeFromTool(tool, button = 0) {
@@ -2031,9 +2019,6 @@
     }
     if (tool === "paint-continent") {
       return "continent";
-    }
-    if (tool === "paint-ocean") {
-      return "ocean";
     }
     return null;
   }
@@ -2122,10 +2107,6 @@
 
   function togglePaintContinent() {
     setTool("paint-continent");
-  }
-
-  function togglePaintOcean() {
-    setTool("paint-ocean");
   }
 
   function toggleVolcano() {
@@ -3401,10 +3382,6 @@
     }
 
     if (event.button === 2) {
-      if (state.tool === "move-icon") {
-        event.preventDefault();
-        return;
-      }
       const removed = removeMarkerAt(point);
       if (!removed) {
         setMessage("Nothing to delete.");
@@ -4538,42 +4515,6 @@
       window.cancelAnimationFrame(overlayRenderFrame);
       overlayRenderFrame = null;
     }
-    let toolModeLabel = "Roll";
-    if (state.tool === "pencil") {
-      toolModeLabel = "Paint Boundaries";
-    } else if (state.tool === "arrow") {
-      toolModeLabel = "Paint arrows";
-    } else if (state.tool === "divide") {
-      toolModeLabel = "Paint Divides";
-    } else if (state.tool === "crust") {
-      toolModeLabel = "Roll crust";
-    } else if (state.tool === "plate-id") {
-      toolModeLabel = "Identify plates";
-    } else if (state.tool === "direction") {
-      toolModeLabel = "Roll directions";
-    } else if (state.tool === "continent") {
-      toolModeLabel = "Paint Cratons";
-    } else if (state.tool === "paint-continent") {
-      toolModeLabel = "Paint Continents";
-    } else if (state.tool === "paint-ocean") {
-      toolModeLabel = "Paint Oceans";
-    } else if (state.tool === "volcano") {
-      toolModeLabel = "Add volcanoes";
-    } else if (state.tool === "move-icon") {
-      toolModeLabel = "Move icon";
-    }
-    if (ui.toolMode) {
-      ui.toolMode.textContent = toolModeLabel;
-    }
-    if (ui.lastSector) {
-      ui.lastSector.textContent = formatLastX();
-    }
-    if (ui.lastCell) {
-      ui.lastCell.textContent = formatLastY();
-    }
-    if (ui.filled) {
-      ui.filled.textContent = state.selectedCells.size;
-    }
     const markerCounts = countMarkersByType();
     const arrowCount = state.lines.filter(
       (line) => (line.lineType || "plate") === "arrow"
@@ -4659,10 +4600,6 @@
         state.tool === "paint-continent"
       );
     }
-    if (ui.paintOceanBtn) {
-      ui.paintOceanBtn.setAttribute("aria-pressed", state.tool === "paint-ocean");
-      ui.paintOceanBtn.classList.toggle("active", state.tool === "paint-ocean");
-    }
     if (ui.surfaceRadiusSlider) {
       const roundedRadius = Math.round(clampSurfaceBrushRadius(state.surfaceBrushRadius));
       ui.surfaceRadiusSlider.value = String(roundedRadius);
@@ -4697,21 +4634,6 @@
       ui.plateObliqueBtn.setAttribute("aria-pressed", selected);
       ui.plateObliqueBtn.classList.toggle("active", selected);
     }
-    if (ui.plateModeHint) {
-      if (state.plateStyle === PLATE_STYLES.divergent) {
-        ui.plateModeHint.textContent =
-          "Left click a boundary line to keep the main line and add one parallel line on one side. Right click resets a plate line to boundary.";
-      } else if (state.plateStyle === PLATE_STYLES.convergent) {
-        ui.plateModeHint.textContent =
-          "Left click a boundary line to add a convergent zigzag line. Right click resets a plate line to boundary.";
-      } else if (state.plateStyle === PLATE_STYLES.oblique) {
-        ui.plateModeHint.textContent =
-          "Left click a boundary line to add an oblique curved zigzag. Right click resets a plate line to boundary.";
-      } else {
-        ui.plateModeHint.textContent =
-          "Boundary mode: click points to connect in a chain. Volcano hotspots are markers and cannot be connected. Right click a boundary line deletes it.";
-      }
-    }
     const wrapEnabled = state.tool === "pencil";
     if (ui.wrapLeftBtn) {
       ui.wrapLeftBtn.disabled = !wrapEnabled;
@@ -4740,20 +4662,6 @@
       ui.markerLayer.style.cursor = isMarkerTool(state.tool) ? "crosshair" : "default";
     }
     scheduleEdgeControlsLayout();
-  }
-
-  function formatLastX() {
-    if (!state.lastRoll) {
-      return "-";
-    }
-    return String(state.lastRoll.col);
-  }
-
-  function formatLastY() {
-    if (!state.lastRoll) {
-      return "-";
-    }
-    return String(state.lastRoll.row);
   }
 
   function buildSvg() {
@@ -5380,8 +5288,6 @@
         setMessage("Surface erased.");
       } else if (state.tool === "paint-continent") {
         setMessage("Continent paint applied.");
-      } else if (state.tool === "paint-ocean") {
-        setMessage("Ocean paint applied.");
       }
     }
     state.surfacePaintDrag = null;
@@ -5781,7 +5687,6 @@
     });
 
     drawContinentDraft(ui.continentCtx);
-    updateContinentHint();
   }
 
   function drawSingleSurfacePaintStamp(context, stamp) {
@@ -5939,87 +5844,6 @@
       context.fill();
     }
     context.restore();
-  }
-
-  function updateContinentHint() {
-    if (!ui.continentHint) {
-      return;
-    }
-    if (state.tool === "continent") {
-      if (state.continentDraft.length > 0) {
-        ui.continentHint.textContent =
-          "Click the first node again to close. Right click cancels.";
-        return;
-      }
-      if (state.selectedContinentId) {
-        ui.continentHint.textContent =
-          "Drag to move. Right-drag to rotate. Drag nodes to reshape.";
-        return;
-      }
-      ui.continentHint.textContent =
-        "Cratons: click to add nodes. Close by clicking the first node. Closed cratons draw dashed outlines (no fill).";
-      return;
-    }
-    if (state.tool === "paint-continent") {
-      ui.continentHint.textContent =
-        "Paint Continents: drag to paint soft brown zones. Right click draws eraser brush.";
-      return;
-    }
-    if (state.tool === "paint-ocean") {
-      ui.continentHint.textContent =
-        "Paint Oceans: drag to paint soft blue zones. Right click draws eraser brush.";
-      return;
-    }
-    if (state.tool === "crust") {
-      ui.continentHint.textContent =
-        "Click to roll crust and place an icon. Drag to move.";
-      return;
-    }
-    if (state.tool === "plate-id") {
-      ui.continentHint.textContent =
-        "Click to place the next plate number. Drag to move.";
-      return;
-    }
-    if (state.tool === "direction") {
-      ui.continentHint.textContent =
-        "Click to roll a direction arrow. Drag to move.";
-      return;
-    }
-    if (state.tool === "volcano") {
-      ui.continentHint.textContent = "Click to place a volcano. Drag to move.";
-      return;
-    }
-    if (state.tool === "move-icon") {
-      ui.continentHint.textContent =
-        "Move icon: drag any marker to reposition it. Right click does not delete in this mode.";
-      return;
-    }
-    if (state.tool === "pencil") {
-      if (state.plateStyle === PLATE_STYLES.divergent) {
-        ui.continentHint.textContent =
-          "Divergent mode: left click a plate line to keep the main line and add one parallel line. Right click resets to boundary.";
-      } else if (state.plateStyle === PLATE_STYLES.convergent) {
-        ui.continentHint.textContent =
-          "Convergent mode: left click a plate line to add zigzag. Right click a plate line to reset boundary.";
-      } else if (state.plateStyle === PLATE_STYLES.oblique) {
-        ui.continentHint.textContent =
-          "Oblique mode: left click a plate line to add curved zigzag hills. Right click resets to boundary.";
-      } else {
-        ui.continentHint.textContent =
-          "Boundary mode: click points to connect in a chain. Volcano hotspots are markers and cannot be connected. Right click a boundary line deletes it.";
-      }
-      return;
-    }
-    if (state.tool === "arrow") {
-      ui.continentHint.textContent = "Click and drag to draw arrows.";
-      return;
-    }
-    if (state.tool === "divide") {
-      ui.continentHint.textContent =
-        "Click and drag to draw dashed divide lines.";
-      return;
-    }
-    ui.continentHint.textContent = "Select a tool to begin.";
   }
 
   function traceContinentPath(context, points) {
